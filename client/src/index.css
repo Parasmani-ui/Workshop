@@ -1,0 +1,186 @@
+:root {
+  --chanakya-primary: #1a3a6b;
+  --chanakya-secondary: #e8b84b;
+  --chanakya-success: #28a745;
+  --chanakya-danger: #dc3545;
+  --chanakya-dark: #0d1b2a;
+  --chanakya-light: #f0f4f8;
+  --sidebar-width: 240px;
+  --topbar-height: 60px;
+}
+
+body {
+  background-color: var(--chanakya-light);
+  font-family: 'Inter', -apple-system, sans-serif;
+  margin: 0;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.app-shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.sidebar {
+  width: var(--sidebar-width);
+  min-height: 100vh;
+  background: var(--chanakya-dark);
+  color: white;
+  display: flex;
+  flex-direction: column;
+  transition: width 0.2s ease;
+}
+
+.sidebar .brand {
+  padding: 1.25rem 1rem;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--chanakya-secondary);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.sidebar .nav-link {
+  color: rgba(255, 255, 255, 0.75);
+  padding: 0.75rem 1rem;
+  display: block;
+  text-decoration: none;
+  border-left: 3px solid transparent;
+}
+
+.sidebar .nav-link:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: white;
+}
+
+.sidebar .nav-link.active {
+  background: rgba(232, 184, 75, 0.1);
+  color: var(--chanakya-secondary);
+  border-left-color: var(--chanakya-secondary);
+}
+
+.sidebar .sidebar-footer {
+  margin-top: auto;
+  padding: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.main-content {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  height: var(--topbar-height);
+  background: white;
+  border-bottom: 1px solid #dee2e6;
+  display: flex;
+  align-items: center;
+  padding: 0 1.5rem;
+  gap: 1rem;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.page-content {
+  padding: 1.5rem;
+  flex: 1;
+}
+
+.stat-card {
+  background: white;
+  border-radius: 8px;
+  padding: 1.25rem;
+  border: 1px solid #dee2e6;
+  transition: box-shadow 0.2s;
+}
+
+.stat-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.quarter-badge {
+  background: var(--chanakya-primary);
+  color: white;
+  padding: 2px 10px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.team-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.submitted { background: var(--chanakya-success); }
+.pending   { background: #ffc107; }
+.locked    { background: var(--chanakya-primary); }
+
+.login-wrapper {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem;
+  background: linear-gradient(135deg, #f0f4f8 0%, #e2e8f0 100%);
+}
+
+.login-brand {
+  font-size: 2.5rem;
+  font-weight: 800;
+  color: var(--chanakya-primary);
+  letter-spacing: -1px;
+}
+
+.login-tagline {
+  color: #64748b;
+  margin-bottom: 2.5rem;
+}
+
+.role-card {
+  background: white;
+  border-radius: 12px;
+  padding: 2rem;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+  border: 1px solid #e2e8f0;
+  height: 100%;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.role-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.1);
+}
+
+.role-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.6rem;
+  margin-bottom: 1rem;
+}
+
+.role-icon.facilitator {
+  background: rgba(26, 58, 107, 0.1);
+  color: var(--chanakya-primary);
+}
+
+.role-icon.team {
+  background: rgba(232, 184, 75, 0.15);
+  color: #b8860b;
+}

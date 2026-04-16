@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: chanakya-sim-server
+    env: node
+    region: singapore
+    plan: free
+    rootDir: server
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: MONGODB_URI
+        sync: false          # Set in Render dashboard → your MongoDB Atlas URI
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CLIENT_URL
+        sync: false          # Set in Render dashboard → your Vercel app URL
