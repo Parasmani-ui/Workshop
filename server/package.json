@@ -7,11 +7,15 @@
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "seed": "ts-node src/scripts/seedMPX.ts",
+    "seed": "ts-node src/scripts/seedAll.ts",
+    "seed:all": "ts-node src/scripts/seedAll.ts",
+    "seed:mpx": "ts-node src/scripts/seedMPX.ts",
     "db:clear": "ts-node src/scripts/clearDB.ts",
     "test:routes": "ts-node src/scripts/testRoutes.ts",
     "test:engine": "ts-node src/scripts/testEngineRun.ts",
-    "validate:golden": "ts-node src/scripts/goldenValidation.ts"
+    "validate:golden": "ts-node src/scripts/goldenValidation.ts",
+    "seed:paper": "ts-node src/scripts/seedPaper.ts",
+    "validate:paper": "ts-node src/scripts/validatePaper.ts"
   },
   "dependencies": {
     "express": "^4.18.0",

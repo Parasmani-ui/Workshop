@@ -51,6 +51,33 @@ export interface GameAidConfig {
    */
   scol1?: number;
   scol2?: number;
+  /**
+   * Fixed S&A base cost per quarter (GAMEAID.FSADCOST).
+   * Added to team S&A decisions before the variable component.
+   * Used by Paper and other scenarios with a game-level fixed S&A floor.
+   */
+  fsadcost?: number;
+  /**
+   * Variable S&A rate as a fraction of gross revenue (GAMEAID.VSADCOST).
+   * Applies when FORECAST.varsad is absent or zero.
+   * Paper: 0.06 (6%). Falls back to forecast.varsad if both present.
+   */
+  vsadcost?: number;
+  /**
+   * Fraction of material cost paid in the current quarter (default 0.8 for MPX).
+   * Paper: 1.0 (100% immediate payment → acpayble = 0).
+   */
+  matpayfrac?: number;
+  /**
+   * Fraction of labour cost paid in the current quarter (default 0.9 for MPX).
+   * Paper: 1.0 (100% immediate payment → acpayble = 0).
+   */
+  labpayfrac?: number;
+  /**
+   * Training type 1 cost (GAMEAID.TRAIN1CST). Added to miscexp → TOTFIN when
+   * a team's DTABLE.TRAIN1 = 1 (n6pro.PRG lines 263-271).
+   */
+  train1cst?: number;
 }
 
 /** Maps to FORECAST.DBF — per-quarter economic/market parameters */
@@ -118,10 +145,24 @@ export interface ProdsConfig {
   myopicf: number[];
   /** Myopic (carry-over) factor for variable advertising */
   myopicv: number[];
-  /** Industry-wide price sensitivity exponent */
-  indpsense: number;
+  /**
+   * Industry-wide price sensitivity exponent.
+   * scalar = same sensitivity for all products (MPX: 1.0)
+   * array  = per-product sensitivity (Paper: [0.01,0.25,5.0,0.1], Petroleum)
+   */
+  indpsense: number | number[];
   /** Labour factor per product */
   labfactor: number[];
+  /** Per-product special collection delta over cashsale base (PARAMS.spscol in FoxPro) */
+  spscol?: number[];
+}
+
+/** Get indpsense for a specific product index (0-based). Falls back to first element or 1.0. */
+export function getIndpsense(indpsense: number | number[], productIndex: number): number {
+  if (Array.isArray(indpsense)) {
+    return indpsense[productIndex] ?? indpsense[0] ?? 1.0;
+  }
+  return indpsense;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -381,6 +422,11 @@ export interface ProductionTeamResult {
   finalProd: [number, number, number, number];
   actualSales: [number, number, number, number];
   closingFG: [number, number, number, number];
+  /**
+   * Own-produced closing FG only (excludes outsourced units).
+   * Used for P&L closeFGvalue — outsourced units are expensed via cash, not inventory.
+   */
+  ownClosingFG: [number, number, number, number];
   openFG: [number, number, number, number];
   outsourced: [number, number, number, number];
   rmPurchased: [number, number];
@@ -485,6 +531,7 @@ export interface CashFlowModuleInput {
   capacity: CapacityState;
   gameaid: GameAidConfig;
   forecast: ForecastParams;
+  prods?: ProdsConfig;
 }
 
 export interface CashFlowModuleOutput {
@@ -509,6 +556,8 @@ export interface CashFlowModuleOutput {
   bdebts: number;
   /** Closing accounts receivable after this quarter's collections. */
   closingAR?: number;
+  /** Training / miscellaneous expense (cash outflow matching CASHTAB.MISCEXP) */
+  miscexp?: number;
 }
 
 // ── Financial Module ──

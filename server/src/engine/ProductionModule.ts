@@ -240,12 +240,20 @@ export async function runProductionModule(
 
     const actualSales: [number, number, number, number] = [0, 0, 0, 0];
     const closingFG: [number, number, number, number] = [0, 0, 0, 0];
+    const ownClosingFG: [number, number, number, number] = [0, 0, 0, 0];
 
     for (let p = 0; p < 4; p++) {
-      const available = finalProd[p] + openFG[p] + outsourced[p];
+      // FoxPro model: opening FG inventory flows through COGS as a book-value
+      // entry (openinv in PANDL) but is NOT physically available-for-sale.
+      // Only new production + outsourced units can be sold this quarter.
+      // This matches the golden data where closeinv = prod - sales (not prod + opening - sales).
+      const availableForSale = finalProd[p] + outsourced[p];
       const ordBook = orderBookEntry ? getOrdbook(orderBookEntry, p) : 0;
-      actualSales[p] = Math.min(available, ordBook);
-      closingFG[p] = available - actualSales[p];
+      actualSales[p] = Math.min(availableForSale, ordBook);
+      closingFG[p] = availableForSale - actualSales[p];
+      // ownClosingFG: own-produced units not sold (own production fills demand first).
+      // Outsourced units are excluded from P&L closing inventory valuation.
+      ownClosingFG[p] = Math.max(0, finalProd[p] - Math.min(finalProd[p], actualSales[p]));
     }
 
     if (DEBUG) {
@@ -296,6 +304,7 @@ export async function runProductionModule(
       finalProd,
       actualSales,
       closingFG,
+      ownClosingFG,
       openFG,
       outsourced,
       rmPurchased: [actualRaw1Purchase, actualRaw2Purchase],

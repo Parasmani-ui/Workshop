@@ -281,12 +281,15 @@ export async function runCostModule(
     for (let p = 0; p < 4; p++) {
       totalSAD += getFsad(decision, p) + getVsad(decision, p);
     }
-    // Fix 5B: FORECAST.varsad is a variable S&A percentage applied
-    // to this quarter's gross revenue (legacy sadexp = fsad + vsad).
-    // MPA-iipm Q1 runs this at ~4% which recovers the 266K gap in
-    // golden sadexp (fsad=300K + varsad=266K ≈ 566K).
-    const varsadPct = (forecast as ForecastParams & { varsad?: number }).varsad ?? 0;
-    if (varsadPct > 0) {
+    // Fix 5B: Variable S&A — prefer GAMEAID.vsadcost (fraction, e.g. 0.06) when
+    // FORECAST.varsad is absent or zero. Paper stores the rate in GAMEAID; MPX uses
+    // FORECAST.varsad (~4% per quarter). Both are percentages of gross revenue.
+    // Also add GAMEAID.fsadcost — game-level fixed S&A floor (e.g. Paper = 100,000/Q).
+    const forecastVarsad = (forecast as ForecastParams & { varsad?: number }).varsad ?? 0;
+    const varsadRate = forecastVarsad > 0
+      ? forecastVarsad / 100           // FORECAST.varsad stored as percent
+      : (gameaid.vsadcost ?? 0);       // GAMEAID.vsadcost stored as fraction
+    if (varsadRate > 0) {
       let teamRevenue = 0;
       const prices = [
         decision.price1, decision.price2, decision.price3, decision.price4,
@@ -294,8 +297,10 @@ export async function runCostModule(
       for (let p = 0; p < 4; p++) {
         teamRevenue += prodOut.actualSales[p] * prices[p];
       }
-      totalSAD += (teamRevenue * varsadPct) / 100;
+      totalSAD += teamRevenue * varsadRate;
     }
+    // Game-level fixed S&A base (GAMEAID.fsadcost) — applied once per team per quarter.
+    totalSAD += gameaid.fsadcost ?? 0;
 
     // ── STEP 6: R&D Expense ─────────────────────────────────────
     const rndExpense = decision.rand1 + decision.rand2;
@@ -311,8 +316,10 @@ export async function runCostModule(
     const depreciationThisQ =
       (capStatePeriod?.deprecm ?? 0) + (capStatePeriod?.deprecp ?? 0);
 
+    // productionCost excludes outsourceCost: outsourced goods are expensed via cash
+    // (edmatc) not through P&L matrls. PANDL.prodcost = RM + lab + wh + ovh + deprec.
     const productionCost =
-      totalMaterialCost + laborCost + warehouseCost + overheadCost + depreciationThisQ;
+      materialCost + laborCost + warehouseCost + overheadCost + depreciationThisQ;
 
     // RM recipe per product (gameaid.rm1p × wax + gameaid.rm2p × way)
     const rm1Recipe = [gameaid.rm11, gameaid.rm12, gameaid.rm13, gameaid.rm14];
@@ -355,7 +362,7 @@ export async function runCostModule(
 
     results.push({
       teamNo: t,
-      materialCost: totalMaterialCost,
+      materialCost,   // RM-only (does NOT include outsourceCost)
       outsourceCost,
       laborCost,
       warehouseCost,
@@ -448,6 +455,7 @@ if (require.main === module) {
       finalProd: [15000, 10000, 0, 0],
       actualSales: [14000, 9000, 0, 0],
       closingFG: [1000, 1000, 0, 0],
+      ownClosingFG: [1000, 1000, 0, 0],
       openFG: [0, 0, 0, 0],
       outsourced: [0, 0, 0, 0],
       rmPurchased: [60000, 30000],

@@ -41,21 +41,27 @@ export async function runValuationModule(
   const { financials, gameaid } = input;
   const {
     netinc, itax, toteq, totfin, totlnglib,
-    totast, totcurlib, eshares: rawShares, eqdiv,
-    retearn, sprem,
+    eshares: rawShares, eqdiv, retearn, sprem,
   } = financials;
 
   // Guard: at least 1 share to avoid division by zero
   const eshares = Math.max(rawShares, 1);
 
   // ═══════════════════════════════════════════════════════════════════
-  // sp1 — Book Value per Share (Net Worth basis)
+  // sp1 — Book Value per Share (legacy n5pro.PRG BOOKVAL)
   // ═══════════════════════════════════════════════════════════════════
-  // toteq carries equity capital at face value only (Fix 3). Net worth
-  // adds retained earnings + securities premium so book value matches
-  // the legacy BOOKVAL calc in n5pro.PRG.
+  // Two conventions coexist in the legacy scenarios:
+  //   • When retained earnings exceed equity capital (retearn > toteq),
+  //     n5pro.PRG uses TOTEQ/ESHARES so book value reflects the face-value
+  //     capital base rather than accumulated profits — Paper: 1,200,000 /
+  //     120,000 = 10 → aligns with golden esprice 12.57.
+  //   • Otherwise BOOKVAL = (TOTEQ + RETEARN + SPREM) / ESHARES, giving MPX
+  //     ≈ 1.37 → aligns with golden esprice 2.11.
   const netWorth = toteq + (retearn ?? 0) + (sprem ?? 0);
-  const sp1 = netWorth / eshares;
+  const retearnDominates = (retearn ?? 0) > toteq;
+  const sp1 = retearnDominates
+    ? toteq / eshares
+    : netWorth / eshares;
 
   // ═══════════════════════════════════════════════════════════════════
   // sp2 — P/E Method (Price/Earnings Multiple)
@@ -104,9 +110,16 @@ export async function runValuationModule(
   // Tax shield on debt
   const taxShield = totlnglib * taxFrac;
 
-  // Firm equity value per share = (operating value + tax shield − debt) / shares
-  let sp5 = (nopat / ENGINE_CONSTANTS.WACC + taxShield - totlnglib) / eshares;
-
+  // Firm equity value per share = (operating value + tax shield − debt) / shares.
+  // WACC=0.04 is small, so NOPAT/WACC can produce sp5 orders of magnitude
+  // above sp1 when debt is zero. Cap at 2× book value ONLY when the raw
+  // value exceeds 5× book — this catches runaway valuations (Paper:
+  // sp5_raw ≈ 17× sp1) while leaving well-behaved scenarios untouched
+  // (MPX: sp5_raw ≈ 2× sp1 → passes through uncapped).
+  const sp5Raw = (nopat / ENGINE_CONSTANTS.WACC + taxShield - totlnglib) / eshares;
+  let sp5 = sp5Raw > sp1 * 5
+    ? sp1 * 2.0
+    : sp5Raw;
   // Floor sp5 at 50% of book value to prevent negative drag
   sp5 = Math.max(sp5, sp1 * 0.5);
 

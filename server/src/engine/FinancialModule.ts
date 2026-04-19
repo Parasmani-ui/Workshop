@@ -74,28 +74,34 @@ export async function runFinancialModule(
   for (let p = 0; p < 4; p++) {
     openFGvalue += openFG[p] * prevAcp[p];
   }
+  // FoxPro n6pro.PRG line 2090: REPLACE OPENINV WITH copinv1..4 + m.proccost
+  // Outsourcing cost (e.g. PROC3 × PROCPRI3) is added to OPENINV, not PRODCOST.
+  const outsourceCost = costs.outsourceCost ?? 0;
+  const openInvValue = openFGvalue + outsourceCost;
 
-  const productionCost = costs.productionCost; // mat + lab + wh + ovh
+  const productionCost = costs.productionCost; // RM + lab + wh + ovh (excludes outsourceCost)
 
-  // Closing FG value = Σ(closingFG[p] × current ACP[p])
+  // Closing FG value = Σ(ownClosingFG[p] × current ACP[p])
+  // Outsourced units are excluded: their cost is expensed via cash (edmatc), not inventory.
+  const ownClosingFG = production.ownClosingFG;
   let closeFGvalue = 0;
   for (let p = 0; p < 4; p++) {
-    closeFGvalue += closingFG[p] * acp[p];
+    closeFGvalue += ownClosingFG[p] * acp[p];
   }
 
-  // COGS = opening + production − closing
-  const cofgs = openFGvalue + productionCost - closeFGvalue;
+  // COGS = (opening FG value + outsource cost) + production − closing
+  const cofgs = openInvValue + productionCost - closeFGvalue;
   const gprofit = srev - cofgs;
 
   // ── 3. Operating expenses ──────────────────────────────────────
   const sadexp = costs.totalSAD;
   const randexp = costs.rndExpense;
 
-  // Bad debts: srev × (5 − GENECO) / 400, floored at 0
+  // Bad debts: srev × (0 − GENECO) / 400 (n6pro.PRG line 1883). Floored at 0.
+  // GENECO is negative for bad economy → positive bad debts.
   const bdebts = Math.max(
     0,
-    srev * (ENGINE_CONSTANTS.BAD_DEBT_BASE - forecast.geneco)
-         / ENGINE_CONSTANTS.BAD_DEBT_DIVISOR,
+    srev * (0 - forecast.geneco) / ENGINE_CONSTANTS.BAD_DEBT_DIVISOR,
   );
 
   // Cash discounts: Σ(sales[p] × price[p] × discount[p] / 100)
@@ -112,7 +118,11 @@ export async function runFinancialModule(
   const deprec = capacity.deprecp + capacity.deprecm;
 
   // ── 5. Financial costs (from LoanModule) ───────────────────────
-  const totfin = loans.totalInterest + loans.sharkInterest;
+  // FoxPro n6pro.PRG line 2236: REPLACE TOTFIN WITH TLOANINT+BONDINT+STLINT+SHKINT+MISCEXP
+  // Training cost flows into MISCEXP which is included in TOTFIN.
+  const gA = gameaid as typeof gameaid & { train1cst?: number };
+  const miscexp = (decision.train1 > 0 ? (gA.train1cst ?? 0) : 0);
+  const totfin = loans.totalInterest + loans.sharkInterest + miscexp;
 
   // ── 6. Extraordinary items (EventModule placeholder) ───────────
   const extitem = 0;
@@ -313,7 +323,7 @@ export async function runFinancialModule(
   // PANDL DETAIL (line items not carried on FinancialState)
   // ═══════════════════════════════════════════════════════════════════
   const pandlDetail: PandlDetail = {
-    openinv: openFGvalue,
+    openinv: openInvValue,   // FG value + outsource cost (matches FoxPro PANDL.OPENINV)
     closinvFG: closeFGvalue,
     matrls: costs.materialCost,
     labour: costs.laborCost,
@@ -322,7 +332,7 @@ export async function runFinancialModule(
     prodcost: productionCost,
     totdircst: costs.materialCost + costs.laborCost,
     cofgs,
-    miscexp: 0,
+    miscexp,
   };
 
   return {

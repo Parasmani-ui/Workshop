@@ -52,6 +52,16 @@ export interface IGameAid {
   lama21: number;
   lamb11: number;
   lamc11: number;
+  scol1?: number;          // Credit collection % for crPrd=1 (GAMEAID.SCOL1)
+  scol2?: number;          // Credit collection % for crPrd=2 (GAMEAID.SCOL2)
+  vsadcost?: number;       // Variable S&A rate as fraction of gross revenue (GAMEAID.VSADCOST)
+  fsadcost?: number;       // Fixed S&A base cost per quarter (GAMEAID.FSADCOST)
+  matpayfrac?: number;     // Fraction of material cost paid current quarter (default 0.8)
+  labpayfrac?: number;     // Fraction of labour cost paid current quarter (default 0.9)
+  train1cst?: number;      // Cost of training project 1 (flows to CASHTAB.miscexp → TOTFIN)
+  train2cst?: number;      // Cost of training project 2
+  train3cst?: number;      // Cost of training project 3
+  train4cst?: number;      // Cost of training project 4
 }
 
 const GameAidSchema = new Schema<IGameAid>(
@@ -101,6 +111,16 @@ const GameAidSchema = new Schema<IGameAid>(
     lama21: { type: Number, default: 0 },
     lamb11: { type: Number, default: 0 },
     lamc11: { type: Number, default: 0 },
+    scol1: { type: Number },
+    scol2: { type: Number },
+    vsadcost: { type: Number },
+    fsadcost: { type: Number },
+    matpayfrac: { type: Number },
+    labpayfrac: { type: Number },
+    train1cst: { type: Number },
+    train2cst: { type: Number },
+    train3cst: { type: Number },
+    train4cst: { type: Number },
   },
   { _id: false }
 );
@@ -115,8 +135,9 @@ export interface IProdsTraiField {
   pv: number[];            // Variable ad sensitivity
   myopicf: number[];       // Fixed ad longevity
   myopicv: number[];       // Variable ad longevity
-  indpsense: number;       // Industry price sensitivity
+  indpsense: number | number[];  // scalar (MPX) or per-product array (Paper/Petroleum)
   labfactor: number[];     // Labour factor per product
+  spscol?: number[];       // Per-product special collection delta (PARAMS.spscol in FoxPro)
 }
 
 const ProdsTraiSchema = new Schema<IProdsTraiField>(
@@ -130,8 +151,9 @@ const ProdsTraiSchema = new Schema<IProdsTraiField>(
     pv: { type: [Number], default: [] },
     myopicf: { type: [Number], default: [] },
     myopicv: { type: [Number], default: [] },
-    indpsense: { type: Number, default: 0 },
+    indpsense: { type: mongoose.Schema.Types.Mixed, default: 1.0 },
     labfactor: { type: [Number], default: [] },
+    spscol: { type: [Number], default: [] },
   },
   { _id: false }
 );

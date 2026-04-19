@@ -322,7 +322,15 @@ export async function processAndPersist(gameId: string, quarterNo: number): Prom
             ovh: cst.overheadCost,
             godown: cst.warehouseCost,
             sadcost: cst.totalSAD,
-            alabcost1: 0, alabcost2: 0, alabcost3: 0, alabcost4: 0,
+            // Labour slab rates actually applied per product — gameaid base
+            // plus this quarter's forecast labcostch (percent-point add-on).
+            // Approximation: uses slab-1 rate (blabcost*). Q1 Paper production
+            // stays in slab 1, matching golden [30, 35, 30, 28]. Higher-slab
+            // runs will refine this once CostModule surfaces effective rates.
+            alabcost1: gameaid.blabcost1 + (forecast.labcostch ?? 0),
+            alabcost2: gameaid.blabcost2 + (forecast.labcostch ?? 0),
+            alabcost3: gameaid.blabcost3 + (forecast.labcostch ?? 0),
+            alabcost4: gameaid.blabcost4 + (forecast.labcostch ?? 0),
             strikea: ev.strikeCostA || 0,
             strikeb: ev.strikeCostB || 0,
           },

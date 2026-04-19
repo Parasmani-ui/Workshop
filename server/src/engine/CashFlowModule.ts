@@ -116,6 +116,7 @@ export async function runCashFlowModule(
     prevFinancials,
     gameaid,
     forecast,
+    prods,
   } = input;
 
   // ── 1. Opening cash ─────────────────────────────────────────────
@@ -141,11 +142,14 @@ export async function runCashFlowModule(
   const discounts = getDiscounts(decision);
   const sales = production.actualSales;
 
+  // cashsell per product = cashFrac + spscol[p] (n6pro.PRG line 1875: cashsell = cashsale + spscol)
+  const spscol = prods?.spscol ?? [];
   let scolcTotal = 0;
   for (let p = 0; p < 4; p++) {
+    const cashsell = Math.min(1, cashFrac + (spscol[p] ?? 0));
     const modsrev = sales[p] * prices[p];
     const discountFrac = (discounts[p] || 0) / 100;
-    const baseCash = modsrev * (cashFrac + geneco + discountFrac);
+    const baseCash = modsrev * (cashsell + geneco + discountFrac);
     scolcTotal += baseCash + (modsrev - baseCash) * (scolEff + geneco + discountFrac);
   }
 
@@ -170,11 +174,10 @@ export async function runCashFlowModule(
   const scolp = prevAR * scpRate;
 
   // ── 4. Bad debts on current revenue ─────────────────────────────
-  // bdebts = srev × (BAD_DEBT_BASE − GENECO) / BAD_DEBT_DIVISOR, floored at 0.
+  // bdebts = srev × (0 − GENECO) / 400 (n6pro.PRG line 1883). Floored at 0.
   const bdebts = Math.max(
     0,
-    (srev * (ENGINE_CONSTANTS.BAD_DEBT_BASE - forecast.geneco))
-      / ENGINE_CONSTANTS.BAD_DEBT_DIVISOR,
+    (srev * (0 - forecast.geneco)) / ENGINE_CONSTANTS.BAD_DEBT_DIVISOR,
   );
 
   // Cash discounts on current-quarter sales (dscnt stored as percent).
@@ -186,17 +189,20 @@ export async function runCashFlowModule(
   }
 
   // ── 5. Operating payments ───────────────────────────────────────
-  // Legacy engine splits material 80/20 and labour 90/10 between
-  // current-quarter cash and accounts payable. These ratios are
-  // hardcoded in n5pro.PRG (no GAMEAID field).
-  const MAT_PAY_FRAC = 0.8;
-  const LAB_PAY_FRAC = 0.9;
+  // MPX (legacy default): material 80/20, labour 90/10.
+  // Paper: 100%/100% immediate (matpayfrac=1.0, labpayfrac=1.0 → acpayble=0).
+  // Values are read from GAMEAID; default to MPX behaviour if absent.
+  const matpayfrac = gameaid.matpayfrac ?? 0.8;
+  const labpayfrac = gameaid.labpayfrac ?? 0.9;
 
-  const edmatc = costs.materialCost * MAT_PAY_FRAC;
-  const edmatp = costs.materialCost * (1 - MAT_PAY_FRAC);
+  // edmatc includes outsourceCost — outsourced goods are paid in full via cash
+  // in the quarter they are ordered (FoxPro n6pro.PRG cash-flow section).
+  const totalMatPayable = costs.materialCost + costs.outsourceCost;
+  const edmatc = totalMatPayable * matpayfrac;
+  const edmatp = totalMatPayable * (1 - matpayfrac);
 
-  const edlabc = costs.laborCost * LAB_PAY_FRAC;
-  const edlabp = costs.laborCost * (1 - LAB_PAY_FRAC);
+  const edlabc = costs.laborCost * labpayfrac;
+  const edlabp = costs.laborCost * (1 - labpayfrac);
 
   // Overhead paid 100% in-quarter
   const eovhc = costs.overheadCost;
@@ -238,7 +244,12 @@ export async function runCashFlowModule(
               + (decision.nthLoan || 0)
               + (decision.nBond || 0);
 
-  // ── 8. Dividend payments ────────────────────────────────────────
+  // ── 8a. Training / miscellaneous expense ────────────────────────
+  // n6pro.PRG lines 263-271 + 2477: miscexp added to cash outflows (CASHTAB.MISCEXP).
+  const cfgA = gameaid as typeof gameaid & { train1cst?: number };
+  const miscexp = (decision.train1 > 0 ? (cfgA.train1cst ?? 0) : 0);
+
+  // ── 8b. Dividend payments ────────────────────────────────────────
   // Preference dividend: quarterly portion of annual rate on outstanding
   // preference capital (paid before equity dividend decision).
   const pdiv = ((gameaid.prefdiv || 0) * (prevFinancials.totpref || 0)) / 4;
@@ -271,7 +282,8 @@ export async function runCashFlowModule(
     + erand      // R&D payments
     + capexp     // capital expenditure
     + sdisc      // cash discounts granted
-    + pdiv;      // preference dividend
+    + pdiv       // preference dividend
+    + miscexp;   // training / misc expense (CASHTAB.MISCEXP)
 
   const endcash = opencash + inflows - outflows;
 
@@ -321,6 +333,7 @@ export async function runCashFlowModule(
     pdiv,
     bdebts,
     closingAR,
+    miscexp,
   };
 }
 
@@ -401,6 +414,7 @@ if (require.main === module) {
     finalProd: [1000, 0, 0, 0],
     actualSales: [1000, 0, 0, 0],
     closingFG: [0, 0, 0, 0],
+    ownClosingFG: [0, 0, 0, 0],
     openFG: [0, 0, 0, 0],
     outsourced: [0, 0, 0, 0],
     rmPurchased: [1000, 0],

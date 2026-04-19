@@ -13,6 +13,7 @@
  */
 
 import { ENGINE_CONSTANTS } from './constants';
+import { getIndpsense } from './types';
 import type {
   DemandModuleInput,
   DemandModuleOutput,
@@ -50,11 +51,6 @@ function getFsad(d: TeamDecision, p: number): number {
 /** Get variable S&A spend for product p (1-based) */
 function getVsad(d: TeamDecision, p: number): number {
   return [0, d.vsad1, d.vsad2, d.vsad3, d.vsad4][p] ?? 0;
-}
-
-/** Get cash discount rate for product p (1-based) */
-function getDscnt(d: TeamDecision, p: number): number {
-  return [0, d.dscnt1, d.dscnt2, d.dscnt3, d.dscnt4][p] ?? 0;
 }
 
 /** Get base demand for product p (1-based) from ForecastParams */
@@ -122,18 +118,21 @@ export async function runDemandModule(
   const numTeams = allDecisions.length;
   const N = 4; // number of products
 
-  // indpsense = 1.0 is valid — it makes the EXP(-LOG(psense)*prieff)
-  // term collapse to 1.0, which means price-neutral base demand. The
-  // real price response comes from the pflex/thres band adjustment to
-  // prieff applied earlier in Step 3. Only reject degenerate values.
-  if (prods.indpsense <= 0) {
+  // indpsense = 1.0 is valid — EXP term collapses to 1 (price-neutral base demand).
+  // Real price response comes from pflex/thres band adjustment to prieff (Step 3).
+  // indpsense may be a scalar (MPX) or a per-product array (Paper, Petroleum).
+  if (Array.isArray(prods.indpsense)) {
+    if (prods.indpsense.some(v => v <= 0)) {
+      throw new Error(
+        `DemandModule: all indpsense values must be > 0, got [${prods.indpsense}].`,
+      );
+    }
+  } else if (prods.indpsense <= 0) {
     throw new Error(
       `DemandModule: indpsense must be > 0, got ${prods.indpsense}.`,
     );
   }
 
-  const psense = prods.indpsense;
-  const psenseIsNeutral = Math.abs(psense - 1.0) < 0.001;
   const noOfTeams = gameaid.nooft || numTeams || 1;
 
   // ─── STEP 1: Brand Image per team per product ───────────────────
@@ -147,12 +146,20 @@ export async function runDemandModule(
     sumArray(allDecisions.map(d => d.train1 + d.train2 + d.train3 + d.train4)), 1
   );
 
-  // Per-product totals for S&A (floor at 1 to prevent /0)
+  // Per-product totals for S&A (floor at 1 to prevent /0).
+  // Track the raw (pre-floor) sum so the ad-effect step below can short
+  // circuit to 1.0 when NO team spent on that product — otherwise a
+  // 1/noopSq drag on zero-share teams clamps vsdeff to the 0.70 floor
+  // and starves P2 demand (Paper: vsad=0 across all teams).
+  const totFsadRaw = new Array(N + 1).fill(0);
+  const totVsadRaw = new Array(N + 1).fill(0);
   const totFsad = new Array(N + 1).fill(0);
   const totVsad = new Array(N + 1).fill(0);
   for (let p = 1; p <= N; p++) {
-    totFsad[p] = Math.max(sumArray(allDecisions.map(d => getFsad(d, p))), 1);
-    totVsad[p] = Math.max(sumArray(allDecisions.map(d => getVsad(d, p))), 1);
+    totFsadRaw[p] = sumArray(allDecisions.map(d => getFsad(d, p)));
+    totVsadRaw[p] = sumArray(allDecisions.map(d => getVsad(d, p)));
+    totFsad[p] = Math.max(totFsadRaw[p], 1);
+    totVsad[p] = Math.max(totVsadRaw[p], 1);
   }
 
   const image: number[][] = allDecisions.map(d => {
@@ -170,11 +177,12 @@ export async function runDemandModule(
 
   if (DEBUG) console.log('[DemandModule] Step 1 image:', JSON.stringify(image));
 
-  // ─── STEP 2: Advertising Effect per team per product ────────────
-  // Fixed S&A effect (fsdeff) uses myopic carry-over from previous quarter
-  // Variable S&A effect (vsdeff) is current-quarter only
+  // ─── STEP 2: Advertising shares per team per product ───────────
+  // Compute team's share of total fsad (fixed S&A) and vsad (variable S&A).
+  // Uses myopic window: if myopicf[p]=1 → 1-quarter window, else 5-quarter.
+  // For Q1 the window collapses to current quarter only (no prior decisions).
+  // Source: n6pro.PRG lines 574–613
 
-  // Compute effective fixed S&A with myopic carry-over
   const effFsad: number[][] = [];
   const totEffFsad = new Array(N + 1).fill(0);
 
@@ -182,11 +190,11 @@ export async function runDemandModule(
     const d = allDecisions[t];
     effFsad[t] = [0];
     for (let p = 1; p <= N; p++) {
-      // Previous quarter's fsad carry-over
-      // NOTE: prevSaleStates does not carry fsad values; defaults to 0.
-      // For Q2+ the input should be extended with prev decisions for full myopic effect.
+      // myopicf stored as numeric in our schema; 1 = short (1Q), otherwise 5Q.
+      // For Q1 (no prior decisions) the window = current Q only.
       const prevFsad = 0;
-      effFsad[t][p] = getFsad(d, p) + prods.myopicf[p - 1] * prevFsad;
+      const myopic = prods.myopicf[p - 1];
+      effFsad[t][p] = getFsad(d, p) + (myopic === 1 ? 0 : myopic) * prevFsad;
       totEffFsad[p] += effFsad[t][p];
     }
   }
@@ -195,145 +203,104 @@ export async function runDemandModule(
     totEffFsad[p] = Math.max(totEffFsad[p], 1);
   }
 
-  // fsdeff = 1 + pf[p] * (teamEffFsad / totalEffFsad)
-  // vsdeff = 1 + pv[p] * (teamVsad / totalVsad)
-  // adEffect = fsdeff * vsdeff
-  const adEffect: number[][] = allDecisions.map((d, t) => {
-    const row = [0];
-    for (let p = 1; p <= N; p++) {
-      const fsdeff = 1 + prods.pf[p - 1] * (effFsad[t][p] / totEffFsad[p]);
-      const vsdeff = 1 + prods.pv[p - 1] * (getVsad(d, p) / totVsad[p]);
-      row[p] = fsdeff * vsdeff;
-    }
-    return row;
-  });
+  if (DEBUG) console.log('[DemandModule] Step 2 totEffFsad:', totEffFsad);
 
-  if (DEBUG) console.log('[DemandModule] Step 2 adEffect:', JSON.stringify(adEffect));
+  // ─── STEP 3: Price ratio (prieff) per team per product ──────────
+  // prieff = team_price / avg_market_price (raw ratio, n6pro.PRG line 662)
 
-  // ─── STEP 3: Price Effectiveness (prieff) ───────────────────────
-  // prieff = team_price / avg_market_price
-  // Apply three-zone price flexibility thresholds from ProdsConfig
-
-  // Average market price per product (only teams actively selling)
   const avgPrice = new Array(N + 1).fill(0);
+  const noop = new Array(N + 1).fill(0); // teams with price > 0 per product
   for (let p = 1; p <= N; p++) {
-    const prices = allDecisions.map(d => getPrice(d, p)).filter(x => x > 0);
-    avgPrice[p] = prices.length > 0 ? sumArray(prices) / prices.length : 0;
+    const activePrices = allDecisions.map(d => getPrice(d, p)).filter(x => x > 0);
+    noop[p] = activePrices.length;
+    avgPrice[p] = activePrices.length > 0 ? sumArray(activePrices) / activePrices.length : 0;
   }
 
-  // Compute adjusted prieff using three-zone flex model
-  const adjPrieff: number[][] = allDecisions.map(d => {
+  const prieff: number[][] = allDecisions.map(d => {
     const row = [0];
     for (let p = 1; p <= N; p++) {
       const price = getPrice(d, p);
-      if (price <= 0 || avgPrice[p] <= 0) {
-        row[p] = 0;
-        continue;
-      }
-
-      const pe = price / avgPrice[p];
-      const tlo = prods.threslo[p - 1];
-      const thi = prods.threshi[p - 1];
-
-      if (pe <= tlo) {
-        // Zone 1: extreme low price -- pflexa amplifies deviation
-        row[p] = tlo + (pe - tlo) * prods.pflexa[p - 1];
-      } else if (pe <= 1.0) {
-        // Zone 2: below-average but normal -- no adjustment
-        row[p] = pe;
-      } else if (pe <= thi) {
-        // Zone 3: above-average premium -- pflexb dampens
-        row[p] = 1.0 + (pe - 1.0) * prods.pflexb[p - 1];
-      } else {
-        // Zone 4: extreme high price -- pflexc amplifies premium penalty
-        row[p] = thi + (pe - thi) * prods.pflexc[p - 1];
-      }
+      row[p] = (price <= 0 || avgPrice[p] <= 0) ? 0 : price / avgPrice[p];
     }
     return row;
   });
 
-  if (DEBUG) console.log('[DemandModule] Step 3 adjPrieff:', JSON.stringify(adjPrieff));
+  if (DEBUG) console.log('[DemandModule] Step 3 prieff:', JSON.stringify(prieff));
 
-  // ─── STEP 4: R&D Factor ────────────────────────────────────────
-  // R&D improves product quality -> boosts demand
-  // rndFactor = 1 + EXP(rand1^RND_POWER) / RND_DIVISOR, capped at 2.0
-  // Source: marktest.prg (ENGINE_CONSTANTS: RND_POWER=0.27, RND_DIVISOR=350)
-
-  const rndFactor = allDecisions.map(d => {
-    // Using current quarter R&D only; cumulative tracking requires
-    // previous decision history not currently in DemandModuleInput
-    const spend = d.rand1;
-    const factor = 1.0 +
-      Math.exp(Math.pow(spend, ENGINE_CONSTANTS.RND_POWER)) /
-      ENGINE_CONSTANTS.RND_DIVISOR;
-    return Math.min(factor, 2.0);
-  });
-
-  if (DEBUG) console.log('[DemandModule] Step 4 rndFactor:', rndFactor);
-
-  // ─── STEP 5: Credit Policy Factor ──────────────────────────────
-  // Higher cash discount -> more demand (customers prefer discounts)
-  // creditFactor = 1 + 0.1 * (teamDiscount - avgDiscount) / avgDiscount
-  // Capped to [0.8, 1.2]
-
-  const avgDscnt = new Array(N + 1).fill(0);
-  for (let p = 1; p <= N; p++) {
-    const discs = allDecisions
-      .filter(d => getPrice(d, p) > 0)
-      .map(d => getDscnt(d, p));
-    avgDscnt[p] = discs.length > 0 ? sumArray(discs) / discs.length : 0;
-  }
-
-  const creditFactor: number[][] = allDecisions.map(d => {
-    const row = [0];
-    for (let p = 1; p <= N; p++) {
-      const diff = getDscnt(d, p) - avgDscnt[p];
-      let cf = 1 + 0.1 * safeDivide(diff, Math.max(avgDscnt[p], 0.01));
-      row[p] = Math.max(0.8, Math.min(cf, 1.2));
-    }
-    return row;
-  });
-
-  if (DEBUG) console.log('[DemandModule] Step 5 creditFactor:', JSON.stringify(creditFactor));
-
-  // ─── STEP 6: Raw Order Book (CORE FORMULA) ─────────────────────
-  // ordBook = EXP(-LOG(psense) * adjustedPrieff) * baseDemand
-  //         * rndFactor * creditFactor * adEffect * (1 + image)
-  // Teams with price = 0 get ordBook = 0
+  // ─── STEP 4: psense and raw order book (n6pro.PRG lines 673-704) ─
+  // psense = noop × pflex_band OR noop × indpsense[p] (fallback)
+  // ordbook_raw = EXP(-LOG(psense) × prieff) × demand  (Veblen formula)
+  // For scenarios with all pflex=0 (Paper): always uses noop × indpsense[p]
+  //
+  // fsdeff/vsdeff applied AFTER raw ordbook (n6pro.PRG lines 707-731):
+  //   fsdeff = MAX(0.70, 0.70 + (share − 1/noop²) × pf)
+  //   vsdeff = MAX(0.70, 0.70 + (vshare − 1/noop²) × pv)
 
   const rawOB: number[][] = allDecisions.map((d, t) => {
     const row = [0];
     for (let p = 1; p <= N; p++) {
-      if (getPrice(d, p) <= 0) {
+      if (prieff[t][p] <= 0) {
         row[p] = 0;
         continue;
       }
 
       const baseDemand = getDemand(forecast, p);
-      const pe = adjPrieff[t][p];
+      const pe = prieff[t][p];
+      const np = noop[p] || 1;
+      const tlo = prods.threslo[p - 1];
+      const thi = prods.threshi[p - 1];
+      const fsdShare = effFsad[t][p] / totEffFsad[p];
+      const vsdShare = safeDivide(getVsad(d, p), totVsad[p]);
 
-      // When psense ≈ 1.0 the EXP term collapses to 1 and price response
-      // is carried entirely by the pflex band adjustment to prieff.
-      const priceEffect = psenseIsNeutral
+      // thres: advertising-adjusted threshold (n6pro.PRG line 676)
+      // Guards against divide-by-zero when tlo=thi=0 (Paper).
+      const thres = (fsdShare < 1 / np)
+        ? ((vsdShare < 1 / np) ? tlo * 1.2 : (tlo + thi) / 2)
+        : ((vsdShare < 1 / np) ? (tlo + thi) / 2 : thi * 0.8);
+
+      // psense: noop × pflex for each zone; noop × indpsense[p] as fallback
+      const indps = getIndpsense(prods.indpsense, p - 1);
+      let psense: number;
+      if (pe <= tlo) {
+        psense = np * prods.pflexa[p - 1];
+      } else if (pe <= thres) {
+        psense = np * prods.pflexb[p - 1];
+      } else if (pe < thi) {
+        psense = np * prods.pflexc[p - 1];
+      } else {
+        psense = np * indps; // fallback: noop × indpsense[p]
+      }
+
+      // Veblen ordbook: psense^(-prieff) × demand (n6pro.PRG line 679)
+      // Guard: psense must be > 1 for sensible demand (psense ≤ 1 gives unusual results)
+      if (psense <= 0) { row[p] = 0; continue; }
+      const rawDemand = (psense <= 1)
+        ? baseDemand / np                     // neutral fallback for degenerate psense
+        : Math.exp(-Math.log(psense) * pe) * baseDemand;
+
+      // fsdeff / vsdeff (n6pro.PRG lines 707-714, uses 1/noop² as baseline).
+      // When NO team spent on that product, adEffect is 1.0 (neutral) —
+      // the 0.70 floor is for competitive underdogs, not for industries
+      // that simply don't advertise (Paper: all vsad=0 across teams).
+      const noopSq = np * np;
+      const fsdeff = totFsadRaw[p] <= 0
         ? 1.0
-        : Math.exp(-Math.log(psense) * pe);
+        : Math.max(0.70, 0.70 + (fsdShare - 1 / noopSq) * prods.pf[p - 1]);
+      const vsdeff = totVsadRaw[p] <= 0
+        ? 1.0
+        : Math.max(0.70, 0.70 + (vsdShare - 1 / noopSq) * prods.pv[p - 1]);
 
-      row[p] =
-        priceEffect *
-        baseDemand *
-        rndFactor[t] *
-        creditFactor[t][p] *
-        adEffect[t][p] *
-        (1 + image[t][p]);
+      row[p] = rawDemand * fsdeff * vsdeff;
     }
     return row;
   });
 
-  if (DEBUG) console.log('[DemandModule] Step 6 rawOB:', JSON.stringify(rawOB));
+  if (DEBUG) console.log('[DemandModule] Step 4 rawOB (after fsd/vsd):', JSON.stringify(rawOB));
 
-  // ─── STEP 7: Normalize Order Books (Lambda Factors) ─────────────
-  // Scale so total across all teams <= baseDemand * lambda
-  // Lambda factors from GameAidConfig: lama11, lama21, lamb11, lamc11
+  // ─── STEP 5: Lambda Normalisation (n6pro.PRG lines 749-754) ─────
+  // FoxPro ALWAYS applies: ordBook × (1 − (totOrd − maxAllowed) / totOrd)
+  // = ordBook × maxAllowed / totOrd  (scales both up and down to exactly maxAllowed)
+  // Guard: if totOrd = 0, ordBook stays 0.
 
   const ordBook: number[][] = Array.from(
     { length: numTeams },
@@ -348,9 +315,8 @@ export async function runDemandModule(
     const lambda = getLambda(gameaid, p);
     const maxAllowed = baseDemand * lambda;
 
-    const scale = (totalRaw > maxAllowed && totalRaw > 0)
-      ? maxAllowed / totalRaw
-      : 1.0;
+    // Always normalise to maxAllowed (FoxPro formula — no >maxAllowed guard)
+    const scale = totalRaw > 0 ? maxAllowed / totalRaw : 0;
 
     for (let t = 0; t < numTeams; t++) {
       ordBook[t][p] = Math.round(rawOB[t][p] * scale);

@@ -334,6 +334,7 @@ export async function processQuarter(
               capacity: capacityBy(t),
               gameaid,
               forecast,
+              prods,
             });
           }),
         ),
