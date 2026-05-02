@@ -116,6 +116,12 @@ export async function runValuationModule(
   // value exceeds 5× book — this catches runaway valuations (Paper:
   // sp5_raw ≈ 17× sp1) while leaving well-behaved scenarios untouched
   // (MPX: sp5_raw ≈ 2× sp1 → passes through uncapped).
+  //
+  // Beer note: Variant A (cap sp1×1.5 when totlnglib=0) regressed MPX
+  // esprice from 2.11 → 1.79 (15% off) because MPX previously fell through
+  // the uncapped path. Beer esprice residual 92% off requires a different
+  // structural fix (toteq-path sp1 when retearn << toteq, tighter sp5 cap
+  // scaled by profitability, or legacy FoxPro formula capture) — defer.
   const sp5Raw = (nopat / ENGINE_CONSTANTS.WACC + taxShield - totlnglib) / eshares;
   let sp5 = sp5Raw > sp1 * 5
     ? sp1 * 2.0

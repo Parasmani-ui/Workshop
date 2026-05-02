@@ -317,6 +317,9 @@ export async function runFinancialModule(
     // Cash
     opencash: cashFlow.opencash,
     endcash: cashFlow.endcash + (loans.sharkLoan || 0),
+    // Short-term investment balance (Beer) — CashFlowModule computed the
+    // end-of-quarter balance net of decision.invsale; carry it forward.
+    invmnt: cashFlow.invmnt,
   };
 
   // ═══════════════════════════════════════════════════════════════════

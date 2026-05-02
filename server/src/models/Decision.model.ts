@@ -86,6 +86,15 @@ export interface IDecision {
   train2: number;
   train3: number;
   train4: number;
+
+  // === INVESTMENTS ===
+  /**
+   * Disinvestment from short-term investments (FD/MF) in rupees. Maps to
+   * legacy DTABLE.STINVT — a negative value there indicates disinvestment
+   * and is stored here as a positive cash inflow. Beer scenario uses this;
+   * default 0 keeps MPX / Paper decisions unchanged.
+   */
+  invsale?: number;
 }
 
 export interface IDecisionDocument extends IDecision, Document {}
@@ -166,6 +175,9 @@ const DecisionSchema = new Schema<IDecisionDocument>(
     train2: { type: Number, default: 0 },
     train3: { type: Number, default: 0 },
     train4: { type: Number, default: 0 },
+
+    // === INVESTMENTS ===
+    invsale: { type: Number, default: 0 },    // disinvestment (Rs) — legacy STINVT
 
     // === META ===
     gameId: { type: String, required: true },

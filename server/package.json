@@ -15,7 +15,10 @@
     "test:engine": "ts-node src/scripts/testEngineRun.ts",
     "validate:golden": "ts-node src/scripts/goldenValidation.ts",
     "seed:paper": "ts-node src/scripts/seedPaper.ts",
-    "validate:paper": "ts-node src/scripts/validatePaper.ts"
+    "validate:paper": "ts-node src/scripts/validatePaper.ts",
+    "seed:beer": "ts-node src/scripts/seedBeer.ts",
+    "validate:beer": "ts-node src/scripts/validateBeer.ts",
+    "validate:all": "ts-node src/scripts/validateAll.ts"
   },
   "dependencies": {
     "express": "^4.18.0",

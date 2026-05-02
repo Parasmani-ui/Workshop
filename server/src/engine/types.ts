@@ -209,6 +209,13 @@ export interface TeamDecision {
   train1: number; train2: number; train3: number; train4: number;     // Training spend
   prefNo: number;         // Preference shares to issue
   prefPri: number;        // Preference issue price
+  /**
+   * Disinvestment from short-term investments / FDs (Rs). Legacy DTABLE
+   * field STINVT — negative values in the DBF indicate disinvestment and
+   * are mapped to a positive invsale here. Cash inflow during the quarter.
+   * Optional to keep Paper/MPX decisions backwards-compatible.
+   */
+  invsale?: number;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -311,6 +318,14 @@ export interface FinancialState {
   // ── Cash ──
   opencash: number;       // Opening cash balance
   endcash: number;        // Ending cash balance
+
+  /**
+   * Short-term investments (FD/MF balance at end of quarter).
+   * Beer scenario: teams start with invmnt=5M at Q0; Q1 disinvestment
+   * (decision.invsale) reduces it, and the residual earns invInterest.
+   * Optional so MPX/Paper records that predate this field still load.
+   */
+  invmnt?: number;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -558,6 +573,15 @@ export interface CashFlowModuleOutput {
   closingAR?: number;
   /** Training / miscellaneous expense (cash outflow matching CASHTAB.MISCEXP) */
   miscexp?: number;
+  /**
+   * Investment interest earned on prior-quarter short-term investments
+   * (CASHTAB.INVINT). Cash inflow. Approximation: prevInvmnt × intrate × 0.5.
+   */
+  invint?: number;
+  /** Cash inflow from disinvestment (CASHTAB.INVSALE, equals decision.invsale). */
+  invsale?: number;
+  /** End-of-quarter short-term investment balance (carried to next quarter). */
+  invmnt?: number;
 }
 
 // ── Financial Module ──

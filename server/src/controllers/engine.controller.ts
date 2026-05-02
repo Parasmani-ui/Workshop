@@ -104,6 +104,8 @@ export async function processAndPersist(gameId: string, quarterNo: number): Prom
       // Cash
       opencash: o.cashtab?.opencash || 0,
       endcash: o.cashtab?.endcash || 0,
+      // Short-term investments carried from prior quarter (Beer seeds 5M at Q0)
+      invmnt: o.bsheet?.invmnt ?? 0,
     }));
 
     const prevCapacityStates: CapacityState[] = prevOutputs.map((o) => ({
@@ -138,6 +140,9 @@ export async function processAndPersist(gameId: string, quarterNo: number): Prom
       cprice1: d.cprice1, cprice2: d.cprice2, cprice3: d.cprice3, cprice4: d.cprice4,
       strset: d.strset, bdisc: d.bdisc,
       train1: d.train1, train2: d.train2, train3: d.train3, train4: d.train4,
+      // Short-term investment disinvestment (Beer scenario). Optional —
+      // falls back to 0 for scenarios that don't use it.
+      invsale: (d as unknown as { invsale?: number }).invsale ?? 0,
     }));
 
     // Load active loans (LoanMaster) carried over from prior quarters,
@@ -257,6 +262,8 @@ export async function processAndPersist(gameId: string, quarterNo: number): Prom
             // Composition of current liabilities so ratios + reports match
             acpayble: cf.edmatp + cf.edlabp,
             shkpayble: loanOut.sharkLoan || 0,
+            // Short-term investment balance carried to next quarter
+            invmnt: cf.invmnt ?? 0,
           },
           cashtab: {
             opencash: fin.opencash,
@@ -297,6 +304,13 @@ export async function processAndPersist(gameId: string, quarterNo: number): Prom
             // Event
             extitem: ev.extraordinaryAmount || 0,
             miscexp: det.miscexp,
+            // Short-term investment cash flows. CASHTAB.INVMNT stores the
+            // NEW investment deposited this quarter, not the running balance
+            // (the balance lives on BSHEET.invmnt). Beer has no new-invest
+            // mechanic yet, so always 0 on cashtab.
+            invint: cf.invint ?? 0,
+            invsale: cf.invsale ?? 0,
+            invmnt: 0,
           },
           saledata: {
             prod1: sd.prod1, prod2: sd.prod2, prod3: sd.prod3, prod4: sd.prod4,

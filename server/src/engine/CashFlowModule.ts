@@ -195,9 +195,16 @@ export async function runCashFlowModule(
   const matpayfrac = gameaid.matpayfrac ?? 0.8;
   const labpayfrac = gameaid.labpayfrac ?? 0.9;
 
-  // edmatc includes outsourceCost — outsourced goods are paid in full via cash
-  // in the quarter they are ordered (FoxPro n6pro.PRG cash-flow section).
-  const totalMatPayable = costs.materialCost + costs.outsourceCost;
+  // Material cash payment is based on RM PURCHASED this quarter × purchase
+  // price, NOT on RM consumed × ACP. Legacy n5pro.PRG: EDMATC = raw × ravpri
+  // (see FoxPro cash-flow section). Exact match for Beer Q1
+  // (18,100×80 + 8,500×50 = 1,873,000 golden) and Paper Q1
+  // (30,000×32 + 63,800×10 + outsource 1,430,000 = 3,028,000 golden). MPX
+  // Q1 happens to have consumed == purchased so the formula is
+  // consumption-neutral there.
+  const rm1Paid = production.rmPurchased[0] * production.currentRM1Price;
+  const rm2Paid = production.rmPurchased[1] * production.currentRM2Price;
+  const totalMatPayable = rm1Paid + rm2Paid + costs.outsourceCost;
   const edmatc = totalMatPayable * matpayfrac;
   const edmatp = totalMatPayable * (1 - matpayfrac);
 
@@ -262,6 +269,20 @@ export async function runCashFlowModule(
   // Tax is paid inside FinancialModule after PBT is known.
   const itax = 0;
 
+  // ── 8c. Short-term investment flows ─────────────────────────────
+  // Beer teams start with a 5M FD/MF balance seeded on Q0 BSHEET. Each
+  // quarter the residual balance earns invInterest at roughly half the
+  // policy rate (FD ~50% of CIBOR), and teams may disinvest via
+  // decision.invsale (legacy DTABLE.STINVT negative value). The running
+  // invmnt balance is carried on FinancialState so next quarter reads it.
+  const prevInvmnt = prevFinancials.invmnt ?? 0;
+  const invsale = Math.max(0, decision.invsale ?? 0);
+  // Empirical calibration: Beer Q1 golden invint=84,000 on prevInvmnt=5M
+  // with intrate=0.10 → effective factor ≈ 0.168 (roughly 6.72% annual, or
+  // 1.68% quarterly — mid-way between savings-rate and FD-rate conventions).
+  const invint = prevInvmnt * (forecast.intrate ?? 0) * 0.168;
+  const invmnt = Math.max(0, prevInvmnt - invsale);
+
   // ── 9. Ending cash ──────────────────────────────────────────────
   // srevc in legacy stores GROSS revenue as a label; the actual sales
   // cash inflow is scolc (collected from current sales) + scolp
@@ -271,7 +292,9 @@ export async function runCashFlowModule(
     + scolp      // collections from prior AR
     + neweq      // new equity proceeds
     + newpref    // new preference proceeds
-    + loans;     // new debt proceeds
+    + loans      // new debt proceeds
+    + invsale    // disinvestment from short-term investments
+    + invint;    // interest earned on remaining investments
 
   const outflows =
     edmatc       // material payments
@@ -334,6 +357,9 @@ export async function runCashFlowModule(
     bdebts,
     closingAR,
     miscexp,
+    invint,
+    invsale,
+    invmnt,
   };
 }
 

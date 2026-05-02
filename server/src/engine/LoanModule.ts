@@ -406,7 +406,13 @@ export async function runLoanModule(
 
   // Strict less-than: if endcash exactly equals mincash, shark does NOT
   // fire (treating equality as "at the minimum" not "below it").
-  if (financials.endcash < gameaid.mincash) {
+  //
+  // mincash > 0 GUARD: some scenarios (Beer) set mincash=0 to disable the
+  // auto-shark mechanism entirely. A literal `endcash < 0` would then
+  // borrow a shark loan whenever Q1 cash outflow exceeds inflow — for
+  // Beer this corrupts cashhand, esprice and the BS. Skip the trigger
+  // when mincash is zero; MPX (500K) and Paper (400K) unaffected.
+  if (gameaid.mincash > 0 && financials.endcash < gameaid.mincash) {
     // Only borrow the shortfall. sharkLoan > 0 is guaranteed because
     // endcash is strictly less than mincash.
     sharkLoan = gameaid.mincash - financials.endcash;
