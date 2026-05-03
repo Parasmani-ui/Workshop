@@ -13,10 +13,22 @@ import { setIO } from './socketInstance';
 
 const server = http.createServer(app);
 
+const ioAllowedOrigins = config.CLIENT_URL
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 export const io = new Server(server, {
   cors: {
-    origin: config.CLIENT_URL,
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true);
+      if (ioAllowedOrigins.includes('*')) return cb(null, true);
+      if (ioAllowedOrigins.includes(origin)) return cb(null, true);
+      if (/\.vercel\.app$/.test(new URL(origin).hostname)) return cb(null, true);
+      return cb(new Error(`CORS blocked: ${origin}`));
+    },
     methods: ['GET', 'POST'],
+    credentials: true,
   },
 });
 

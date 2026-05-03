@@ -19,7 +19,7 @@ function requireEnv(key: string): string {
 export const config = {
   PORT: parseInt(process.env.PORT || '5000', 10),
   MONGODB_URI: requireEnv('MONGODB_URI'),
-  JWT_SECRET: requireEnv('JWT_SECRET'),
-  CLIENT_URL: process.env.CLIENT_URL || 'http://localhost:5173',
+  JWT_SECRET: process.env.JWT_SECRET || 'dev-insecure-secret-change-me',
+  CLIENT_URL: process.env.CLIENT_URL || 'http://localhost:5173,http://localhost:3000',
   NODE_ENV: process.env.NODE_ENV || 'development',
 } as const;

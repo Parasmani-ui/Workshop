@@ -18,7 +18,23 @@ import { engineRouter } from './routes/engine.routes';
 const app = express();
 
 // --------------- Middleware ---------------
-app.use(cors({ origin: config.CLIENT_URL, credentials: true }));
+const allowedOrigins = config.CLIENT_URL
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+app.use(
+  cors({
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true);
+      if (allowedOrigins.includes('*')) return cb(null, true);
+      if (allowedOrigins.includes(origin)) return cb(null, true);
+      if (/\.vercel\.app$/.test(new URL(origin).hostname)) return cb(null, true);
+      return cb(new Error(`CORS blocked: ${origin}`));
+    },
+    credentials: true,
+  })
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
