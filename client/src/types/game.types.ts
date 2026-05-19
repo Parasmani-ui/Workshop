@@ -65,6 +65,8 @@ export interface LeaderboardEntry {
   teamName: string
   value: number
   trend?: 'up' | 'down' | 'same'
+  /** True once Q1+ has been processed for this team. False for unplayed games. */
+  played?: boolean
 }
 
 export const WIN_CRITERIA_LABELS: Record<WinCriteria, string> = {

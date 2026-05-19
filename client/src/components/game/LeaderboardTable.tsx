@@ -27,7 +27,11 @@ export default function LeaderboardTable({
   const teamByNo = new Map<number, Team>()
   teams.forEach((t) => teamByNo.set(t.teamNo, t))
 
-  if (entries.length === 0) {
+  // Exclude unplayed teams (no Q1+ output) so a freshly-activated game shows
+  // the "no results yet" empty state instead of Q0 bootstrap values.
+  const playedEntries = entries.filter((e) => e.played !== false)
+
+  if (playedEntries.length === 0) {
     return (
       <div className="text-center text-muted py-4">
         <div className="fs-5 mb-1">No results yet</div>
@@ -53,7 +57,7 @@ export default function LeaderboardTable({
           </tr>
         </thead>
         <tbody>
-          {entries.map((e) => {
+          {playedEntries.map((e) => {
             const team = teamByNo.get(e.teamNo)
             const medal = MEDALS[e.rank] ?? ''
             return (

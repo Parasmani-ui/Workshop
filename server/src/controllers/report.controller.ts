@@ -79,15 +79,29 @@ export async function getLeaderboard(req: Request, res: Response, next: NextFunc
       teamName: string;
       value: number;
       trend: number;
+      played: boolean;
     }> = [];
 
     for (const team of teams) {
-      const allOutputs = await QuarterOutput.find({ gameId, teamNo: team.teamNo })
+      // Q0 is a balance-sheet bootstrap, not a played quarter — exclude it so
+      // freshly-activated games show no leaderboard value until Q1 is processed.
+      const allOutputs = await QuarterOutput.find({
+        gameId,
+        teamNo: team.teamNo,
+        quarterNo: { $gt: 0 },
+      })
         .sort({ quarterNo: 1 })
         .lean();
 
       if (!allOutputs.length) {
-        leaderboard.push({ rank: 0, teamNo: team.teamNo, teamName: team.teamName, value: 0, trend: 0 });
+        leaderboard.push({
+          rank: 0,
+          teamNo: team.teamNo,
+          teamName: team.teamName,
+          value: 0,
+          trend: 0,
+          played: false,
+        });
         continue;
       }
 
@@ -157,11 +171,21 @@ export async function getLeaderboard(req: Request, res: Response, next: NextFunc
         teamName: team.teamName,
         value,
         trend: value - prevValue,
+        played: true,
       });
     }
 
-    leaderboard.sort((a, b) => b.value - a.value);
-    leaderboard.forEach((entry, idx) => { entry.rank = idx + 1; });
+    // Played teams ranked normally by value (desc). Unplayed teams keep rank 0.
+    leaderboard.sort((a, b) => {
+      if (a.played !== b.played) return a.played ? -1 : 1;
+      return b.value - a.value;
+    });
+    let nextRank = 1;
+    leaderboard.forEach((entry) => {
+      if (entry.played) {
+        entry.rank = nextRank++;
+      }
+    });
 
     res.status(200).json({
       success: true,
