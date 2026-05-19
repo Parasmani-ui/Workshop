@@ -110,7 +110,7 @@ export default function LoginPage() {
   return (
     <div className="login-wrapper">
       <div className="text-center">
-        <div className="login-brand"> PARASMANI</div>
+        <div className="login-brand"> LEADERLY </div>
         <div className="login-tagline">Business Simulation Platform</div>
       </div>
 
@@ -158,9 +158,7 @@ export default function LoginPage() {
 
         {activeRole === 'team' ? (
           <Form onSubmit={submitTeam} className="role-card">
-            <h4 className="mb-1">I'm a Team</h4>
-            <p className="text-muted small mb-3">Play the simulation</p>
-
+            
             <div className="d-flex gap-2 mb-3">
               <Button
                 size="sm"
@@ -238,9 +236,7 @@ export default function LoginPage() {
           </Form>
         ) : (
           <Form onSubmit={submitFacilitator} className="role-card">
-            <h4 className="mb-1">I'm an Admin</h4>
-            <p className="text-muted small mb-3">Run the simulation</p>
-
+            <p className="text-muted small mb-3">Facilitators sign in here</p>
             {facError && (
               <Alert variant="danger" className="py-2 small">
                 {facError}

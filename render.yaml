@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: parasmani-sim-server
+    name: LEADERLY-sim-server
     env: node
     region: singapore
     plan: free

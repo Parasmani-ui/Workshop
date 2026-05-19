@@ -32,7 +32,7 @@ export default function Sidebar({ role }: Props) {
 
   return (
     <aside className="sidebar">
-      <div className="brand">⚡ PARASMANI</div>
+      <div className="brand"> LEADERLY </div>
       <nav className="flex-grow-1 py-2">
         {links.map((l) => (
           <NavLink key={l.to} to={l.to} end={l.end} className="nav-link">
