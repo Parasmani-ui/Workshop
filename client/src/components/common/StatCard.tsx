@@ -16,6 +16,14 @@ const VARIANT_BORDERS: Record<NonNullable<StatCardProps['variant']>, string> = {
   warning: 'border-start border-warning border-3',
 }
 
+const VARIANT_VALUE_TEXT: Record<NonNullable<StatCardProps['variant']>, string> = {
+  default: '',
+  primary: '',
+  success: 'text-success',
+  danger: 'text-danger',
+  warning: 'text-warning',
+}
+
 const TREND_SYMBOL: Record<NonNullable<StatCardProps['trend']>, { char: string; cls: string }> = {
   up: { char: '↑', cls: 'text-success' },
   down: { char: '↓', cls: 'text-danger' },
@@ -32,6 +40,7 @@ export default function StatCard({
   onClick,
 }: StatCardProps) {
   const borderCls = VARIANT_BORDERS[variant]
+  const valueCls = VARIANT_VALUE_TEXT[variant]
   const clickable = onClick ? 'cursor-pointer' : ''
 
   return (
@@ -44,7 +53,7 @@ export default function StatCard({
         <div className="text-muted small text-uppercase fw-semibold">{title}</div>
         {icon && <div className="fs-4 text-muted">{icon}</div>}
       </div>
-      <div className="fw-bold fs-3 mt-1">{value}</div>
+      <div className={`fw-bold fs-3 mt-1 ${valueCls}`}>{value}</div>
       {(subtitle || trend) && (
         <div className="d-flex align-items-center gap-2 small mt-1">
           {trend && (

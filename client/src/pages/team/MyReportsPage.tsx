@@ -5,7 +5,7 @@ import { useGameStore } from '@/store/gameStore'
 import { reportApi } from '@/services/api'
 import type { TeamReport } from '@/types/report.types'
 import {
-  formatCurrencyFull,
+  formatAmount,
   formatSharePrice,
   formatRatio,
   formatPercent,
@@ -37,13 +37,17 @@ function Row({ label, value, bold, indent = 0, className = '', divider }: RowPro
   }
   const weight = bold ? 'fw-bold' : ''
   const pad = { paddingLeft: `${indent * 16 + 8}px` }
+  const isNumber = typeof value === 'number'
+  const hasColorOverride = /text-(success|danger|warning|info|primary|muted)/.test(className)
+  const negative = isNumber && value < 0 && !hasColorOverride
+  const valueClass = `text-end ${weight} ${negative ? 'text-danger' : ''}`.trim()
   return (
     <tr className={className}>
       <td style={pad} className={weight}>
         {label}
       </td>
-      <td className={`text-end ${weight}`}>
-        {typeof value === 'number' ? formatCurrencyFull(value) : value}
+      <td className={valueClass}>
+        {isNumber ? formatAmount(value) : value}
       </td>
     </tr>
   )
@@ -155,9 +159,14 @@ function ReportBody({ report }: { report: TeamReport }) {
   const pbt = ebit - pandl.totfin
   const reserveTransfer = pandl.netinc - pandl.eqdiv - pandl.pdiv
 
-  const grossBlock = 0 // plant/macery not in current type; fall back to gross fixed assets
-  const totalLE = bsheet.toteq + bsheet.totlnglib + bsheet.totcurlib
   const shareCapital = bsheet.eshares * EQUITY_FACE_VALUE
+  const totpref = bsheet.totpref ?? 0
+  const sprem = bsheet.sprem ?? 0
+  // Total equity = share capital at face value + retained earnings + securities premium.
+  // bsheet.toteq from the server holds only the face-value component, so we
+  // compose the full equity here for display.
+  const totalEquityDisplay = bsheet.toteq + bsheet.retearn + sprem
+  const totalLE = totalEquityDisplay + totpref + bsheet.totlnglib + bsheet.totcurlib
 
   const eps = bsheet.eshares > 0 ? pandl.netinc / bsheet.eshares : 0
   const netMargin = pandl.srev > 0 ? pandl.netinc / pandl.srev : 0
@@ -218,70 +227,82 @@ function ReportBody({ report }: { report: TeamReport }) {
 
       <Accordion.Item eventKey="1">
         <Accordion.Header>Balance Sheet</Accordion.Header>
-        <Accordion.Body>
-          <div className="row g-3">
-            <div className="col-md-6">
-              <h6 className="text-muted text-uppercase small">Assets</h6>
-              <Table hover size="sm">
-                <tbody>
+        <Accordion.Body className="p-0">
+          <Table hover size="sm" className="mb-0">
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th className="text-end">Amount (₹)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="table-light">
+                <td colSpan={2} className="fw-bold text-uppercase small text-muted">
+                  Assets
+                </td>
+              </tr>
+              <tr>
+                <td className="fw-semibold">Fixed Assets</td>
+                <td></td>
+              </tr>
+              <Row label="Net Fixed Assets" value={bsheet.totfixast} indent={1} bold />
+              <tr>
+                <td className="fw-semibold">Current Assets</td>
+                <td></td>
+              </tr>
+              <Row label="Cash & Bank" value={bsheet.cashhand} indent={1} />
+              <Row label="Accounts Receivable" value={bsheet.arecble} indent={1} />
+              <Row label="Inventories" value={bsheet.closeinv} indent={1} />
+              <Row label="Total Current Assets" value={bsheet.totcurast} indent={1} bold />
+              <Row divider label="" value="" />
+              <Row label="TOTAL ASSETS" value={bsheet.totast} bold />
+
+              <tr>
+                <td colSpan={2} className="pt-3">
+                  <hr className="my-1" />
+                </td>
+              </tr>
+              <tr className="table-light">
+                <td colSpan={2} className="fw-bold text-uppercase small text-muted">
+                  Liabilities &amp; Equity
+                </td>
+              </tr>
+              <tr>
+                <td className="fw-semibold">Equity</td>
+                <td></td>
+              </tr>
+              <Row label="Share Capital" value={shareCapital} indent={1} />
+              <Row label="Retained Earnings" value={bsheet.retearn} indent={1} />
+              {sprem > 0 && (
+                <Row label="Securities Premium" value={sprem} indent={1} />
+              )}
+              <Row label="Total Equity" value={totalEquityDisplay} indent={1} bold />
+              {totpref > 0 && (
+                <>
                   <tr>
-                    <td className="fw-semibold">Fixed Assets</td>
+                    <td className="fw-semibold">Preference Capital</td>
                     <td></td>
                   </tr>
-                  <Row label="Gross Block" value={grossBlock} indent={1} />
-                  <Row
-                    label="Less: Accumulated Depreciation"
-                    value={0}
-                    indent={1}
-                  />
-                  <Row label="NET FIXED ASSETS" value={bsheet.totfixast} bold />
-                  <tr>
-                    <td className="fw-semibold">Current Assets</td>
-                    <td></td>
-                  </tr>
-                  <Row label="Cash & Bank" value={bsheet.cashhand} indent={1} />
-                  <Row label="Accounts Receivable" value={bsheet.arecble} indent={1} />
-                  <Row label="Inventories" value={bsheet.closeinv} indent={1} />
-                  <Row label="TOTAL CURRENT ASSETS" value={bsheet.totcurast} bold />
-                  <Row divider label="" value="" />
-                  <Row label="TOTAL ASSETS" value={bsheet.totast} bold />
-                </tbody>
-              </Table>
-            </div>
-            <div className="col-md-6">
-              <h6 className="text-muted text-uppercase small">Liabilities &amp; Equity</h6>
-              <Table hover size="sm">
-                <tbody>
-                  <tr>
-                    <td className="fw-semibold">Equity</td>
-                    <td></td>
-                  </tr>
-                  <Row label="Share Capital" value={shareCapital} indent={1} />
-                  <Row label="Retained Earnings" value={bsheet.retearn} indent={1} />
-                  <Row label="TOTAL EQUITY" value={bsheet.toteq} bold />
-                  <tr>
-                    <td className="fw-semibold">Long-term Debt</td>
-                    <td></td>
-                  </tr>
-                  <Row label="2-Year Loans" value={bsheet.twyloans} indent={1} />
-                  <Row label="3-Year Loans" value={bsheet.thyloans} indent={1} />
-                  <Row label="Bonds" value={bsheet.bonds} indent={1} />
-                  <Row label="TOTAL LT DEBT" value={bsheet.totlnglib} bold />
-                  <tr>
-                    <td className="fw-semibold">Current Liabilities</td>
-                    <td></td>
-                  </tr>
-                  <Row
-                    label="TOTAL CURRENT LIABILITIES"
-                    value={bsheet.totcurlib}
-                    bold
-                  />
-                  <Row divider label="" value="" />
-                  <Row label="TOTAL L + E" value={totalLE} bold />
-                </tbody>
-              </Table>
-            </div>
-          </div>
+                  <Row label="Preference Shares" value={totpref} indent={1} bold />
+                </>
+              )}
+              <tr>
+                <td className="fw-semibold">Long-term Debt</td>
+                <td></td>
+              </tr>
+              <Row label="2-Year Loans" value={bsheet.twyloans} indent={1} />
+              <Row label="3-Year Loans" value={bsheet.thyloans} indent={1} />
+              <Row label="Bonds" value={bsheet.bonds} indent={1} />
+              <Row label="Total Long-term Debt" value={bsheet.totlnglib} indent={1} bold />
+              <tr>
+                <td className="fw-semibold">Current Liabilities</td>
+                <td></td>
+              </tr>
+              <Row label="Total Current Liabilities" value={bsheet.totcurlib} indent={1} bold />
+              <Row divider label="" value="" />
+              <Row label="TOTAL LIABILITIES & EQUITY" value={totalLE} bold />
+            </tbody>
+          </Table>
         </Accordion.Body>
       </Accordion.Item>
 
@@ -297,16 +318,25 @@ function ReportBody({ report }: { report: TeamReport }) {
               />
             </div>
             <div className="col-md-4">
-              <StatCard title="EPS" value={formatSharePrice(eps)} />
+              <StatCard
+                title="EPS"
+                value={formatSharePrice(eps)}
+                variant={eps < 0 ? 'danger' : 'default'}
+              />
             </div>
             <div className="col-md-4">
               <StatCard
                 title="Current Ratio"
                 value={formatRatio(bsheet.cratio)}
+                variant={bsheet.cratio < 0 ? 'danger' : 'default'}
               />
             </div>
             <div className="col-md-4">
-              <StatCard title="D/E Ratio" value={formatRatio(bsheet.de)} />
+              <StatCard
+                title="D/E Ratio"
+                value={formatRatio(bsheet.de)}
+                variant={bsheet.de < 0 ? 'danger' : 'default'}
+              />
             </div>
             <div className="col-md-4">
               <StatCard
@@ -336,63 +366,95 @@ function ReportBody({ report }: { report: TeamReport }) {
                 <th className="text-end">Ordered</th>
                 <th className="text-end">Produced</th>
                 <th className="text-end">Sold</th>
-                <th className="text-end">Closing Inv</th>
-                <th className="text-end">ACP (₹)</th>
+                <th className="text-end">Closing Inventory</th>
+                <th className="text-end">Average Cost Price (₹)</th>
               </tr>
             </thead>
             <tbody>
-              <tr>
-                <td>Product 1</td>
-                <td className="text-end">{saledata.ordbook1}</td>
-                <td className="text-end">{saledata.prod1}</td>
-                <td className="text-end">{saledata.sale1}</td>
-                <td className="text-end">{saledata.closeinv1}</td>
-                <td className="text-end">{formatSharePrice(pandl.acp1)}</td>
-              </tr>
-              <tr>
-                <td>Product 2</td>
-                <td className="text-end">{saledata.ordbook2}</td>
-                <td className="text-end">{saledata.prod2}</td>
-                <td className="text-end">{saledata.sale2}</td>
-                <td className="text-end">{saledata.closeinv2}</td>
-                <td className="text-end">{formatSharePrice(pandl.acp2)}</td>
-              </tr>
-              <tr>
-                <td>Product 3</td>
-                <td className="text-end">{saledata.ordbook3}</td>
-                <td className="text-end">{saledata.prod3}</td>
-                <td className="text-end">{saledata.sale3}</td>
-                <td className="text-end">{saledata.closeinv3}</td>
-                <td className="text-end">{formatSharePrice(pandl.acp3)}</td>
-              </tr>
-              <tr>
-                <td>Product 4</td>
-                <td className="text-end">{saledata.ordbook4}</td>
-                <td className="text-end">{saledata.prod4}</td>
-                <td className="text-end">{saledata.sale4}</td>
-                <td className="text-end">{saledata.closeinv4}</td>
-                <td className="text-end">{formatSharePrice(pandl.acp4)}</td>
-              </tr>
-              <tr className="table-light">
-                <td>Raw Material X</td>
-                <td className="text-end">—</td>
-                <td className="text-end">—</td>
-                <td className="text-end">{saledata.rawx}</td>
-                <td className="text-end">—</td>
-                <td className="text-end">{formatSharePrice(saledata.wax)}</td>
-              </tr>
-              <tr className="table-light">
-                <td>Raw Material Y</td>
-                <td className="text-end">—</td>
-                <td className="text-end">—</td>
-                <td className="text-end">{saledata.rawy}</td>
-                <td className="text-end">—</td>
-                <td className="text-end">{formatSharePrice(saledata.way)}</td>
-              </tr>
+              <SalesRow
+                label="Product 1"
+                ordered={saledata.ordbook1}
+                produced={saledata.prod1}
+                sold={saledata.sale1}
+                closing={saledata.closeinv1}
+                acp={pandl.acp1}
+              />
+              <SalesRow
+                label="Product 2"
+                ordered={saledata.ordbook2}
+                produced={saledata.prod2}
+                sold={saledata.sale2}
+                closing={saledata.closeinv2}
+                acp={pandl.acp2}
+              />
+              <SalesRow
+                label="Product 3"
+                ordered={saledata.ordbook3}
+                produced={saledata.prod3}
+                sold={saledata.sale3}
+                closing={saledata.closeinv3}
+                acp={pandl.acp3}
+              />
+              <SalesRow
+                label="Product 4"
+                ordered={saledata.ordbook4}
+                produced={saledata.prod4}
+                sold={saledata.sale4}
+                closing={saledata.closeinv4}
+                acp={pandl.acp4}
+              />
+              <SalesRow
+                label="Raw Material X"
+                sold={saledata.rawx}
+                acp={saledata.wax}
+                rowClass="table-light"
+              />
+              <SalesRow
+                label="Raw Material Y"
+                sold={saledata.rawy}
+                acp={saledata.way}
+                rowClass="table-light"
+              />
             </tbody>
           </Table>
         </Accordion.Body>
       </Accordion.Item>
     </Accordion>
+  )
+}
+
+interface SalesRowProps {
+  label: string
+  ordered?: number
+  produced?: number
+  sold?: number
+  closing?: number
+  acp: number
+  rowClass?: string
+}
+
+function SalesRow({
+  label,
+  ordered,
+  produced,
+  sold,
+  closing,
+  acp,
+  rowClass = '',
+}: SalesRowProps) {
+  const cell = (v: number | undefined, decimals = 0) => {
+    if (v === undefined) return <span>—</span>
+    const cls = v < 0 ? 'text-danger' : ''
+    return <span className={cls}>{formatAmount(v, decimals)}</span>
+  }
+  return (
+    <tr className={rowClass}>
+      <td>{label}</td>
+      <td className="text-end">{cell(ordered)}</td>
+      <td className="text-end">{cell(produced)}</td>
+      <td className="text-end">{cell(sold)}</td>
+      <td className="text-end">{cell(closing)}</td>
+      <td className="text-end">{cell(acp, 2)}</td>
+    </tr>
   )
 }

@@ -16,9 +16,9 @@ import type { SectorEntry, TeamReport } from '@/types/report.types'
 import type { LeaderboardEntry } from '@/types/game.types'
 import { WIN_CRITERIA_LABELS } from '@/types/game.types'
 import {
-  formatCurrency,
+  formatCurrencyShort,
   formatRatio,
-  formatSharePrice,
+  formatAmount,
 } from '@/utils/formatters'
 import LeaderboardTable from '@/components/game/LeaderboardTable'
 
@@ -30,32 +30,34 @@ interface MetricRow {
   getValue: (e: SectorEntry, r: TeamReport | undefined) => number | null
 }
 
+const formatPrice = (v: number) => formatAmount(v, 2)
+
 const METRIC_ROWS: MetricRow[] = [
   {
     label: 'Revenue (₹)',
     key: 'rev',
-    format: formatCurrency,
+    format: formatCurrencyShort,
     higherIsBetter: true,
     getValue: (_e, r) => r?.pandl.srev ?? null,
   },
   {
     label: 'Gross Profit (₹)',
     key: 'gp',
-    format: formatCurrency,
+    format: formatCurrencyShort,
     higherIsBetter: true,
     getValue: (_e, r) => r?.pandl.gprofit ?? null,
   },
   {
     label: 'PAT (₹)',
     key: 'pat',
-    format: formatCurrency,
+    format: formatCurrencyShort,
     higherIsBetter: true,
     getValue: (e) => e.netinc,
   },
   {
     label: 'EBITDA (₹)',
     key: 'ebitda',
-    format: formatCurrency,
+    format: formatCurrencyShort,
     higherIsBetter: true,
     getValue: (_e, r) => {
       if (!r) return null
@@ -66,21 +68,21 @@ const METRIC_ROWS: MetricRow[] = [
   {
     label: 'Share Price (₹)',
     key: 'sp',
-    format: formatSharePrice,
+    format: formatPrice,
     higherIsBetter: true,
     getValue: (e) => e.esprice,
   },
   {
     label: 'Market Cap (₹)',
     key: 'mc',
-    format: formatCurrency,
+    format: formatCurrencyShort,
     higherIsBetter: true,
     getValue: (e) => e.marketCap,
   },
   {
     label: 'Net Worth (₹)',
     key: 'nw',
-    format: formatCurrency,
+    format: formatCurrencyShort,
     higherIsBetter: true,
     getValue: (e) => e.toteq,
   },
@@ -101,7 +103,7 @@ const METRIC_ROWS: MetricRow[] = [
   {
     label: 'EPS (₹)',
     key: 'eps',
-    format: formatSharePrice,
+    format: formatPrice,
     higherIsBetter: true,
     getValue: (e) => e.eps,
   },
@@ -351,8 +353,9 @@ function ComparativeTable({
                   } else if (nums.length > 1 && v === worst) {
                     bg = 'bg-danger-subtle'
                   }
+                  const negCls = v < 0 ? 'text-danger' : ''
                   return (
-                    <td key={i} className={`text-end ${bg} ${weight}`}>
+                    <td key={i} className={`text-end ${bg} ${weight} ${negCls}`.trim()}>
                       {row.format(v)}
                     </td>
                   )

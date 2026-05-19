@@ -12,19 +12,27 @@ const facilitatorLinks = [
   { to: '/facilitator/sector', label: 'Sector Update' },
 ]
 
-const teamLinks = [
-  { to: '/team', label: 'Dashboard', end: true },
-  { to: '/team/decisions', label: 'Submit Decisions' },
-  { to: '/team/reports', label: 'My Reports' },
-]
-
 export default function Sidebar({ role }: Props) {
-  const { currentGame, myTeamNo } = useGameStore()
+  const { currentGame, myGameId, myTeamNo } = useGameStore()
+
+  const teamLinks = (() => {
+    const activeGameId = myGameId
+    const base = [{ to: '/team', label: 'My Games', end: true as const }]
+    if (activeGameId) {
+      base.push(
+        { to: `/team/game/${activeGameId}`, label: 'Game Dashboard', end: true as const },
+        { to: `/team/game/${activeGameId}/decisions`, label: 'Submit Decisions', end: true as const },
+        { to: `/team/game/${activeGameId}/reports`, label: 'My Reports', end: true as const }
+      )
+    }
+    return base
+  })()
+
   const links = role === 'facilitator' ? facilitatorLinks : teamLinks
 
   return (
     <aside className="sidebar">
-      <div className="brand">⚡ CHANAKYA</div>
+      <div className="brand">⚡ PARASMANI</div>
       <nav className="flex-grow-1 py-2">
         {links.map((l) => (
           <NavLink key={l.to} to={l.to} end={l.end} className="nav-link">
@@ -43,7 +51,7 @@ export default function Sidebar({ role }: Props) {
           <div className="small">No game loaded</div>
         )}
         {role === 'team' && myTeamNo !== null && (
-          <div className="small mt-2">Team #{myTeamNo}</div>
+          <div className="small mt-2">Team #{myTeamNo + 1}</div>
         )}
       </div>
     </aside>

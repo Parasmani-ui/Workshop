@@ -296,9 +296,14 @@ export async function runCashFlowModule(
     + invsale    // disinvestment from short-term investments
     + invint;    // interest earned on remaining investments
 
+  // Settle previous quarter's accounts payable (material + labour
+  // deferred portions). Without this, prev acpayble drops off the BS
+  // each quarter without a matching cash outflow → drift = prevAcpayble.
+  const prevAcpayblePaid = prevFinancials.acpayble || 0;
+
   const outflows =
-    edmatc       // material payments
-    + edlabc     // labour payments
+    edmatc       // current-quarter material cash payments
+    + edlabc     // current-quarter labour cash payments
     + eovhc      // overhead payments
     + esadc      // S&A payments
     + egdown     // warehousing payments
@@ -306,7 +311,8 @@ export async function runCashFlowModule(
     + capexp     // capital expenditure
     + sdisc      // cash discounts granted
     + pdiv       // preference dividend
-    + miscexp;   // training / misc expense (CASHTAB.MISCEXP)
+    + miscexp    // training / misc expense (CASHTAB.MISCEXP)
+    + prevAcpayblePaid; // settle prior quarter's deferred material/labour
 
   const endcash = opencash + inflows - outflows;
 

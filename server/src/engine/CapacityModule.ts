@@ -80,18 +80,22 @@ export async function runCapacityModule(
 ): Promise<CapacityModuleOutput> {
   const { teamNo, decision, prevCapacity, gameaid } = input;
 
-  // ── 1. Record newly ordered capacity (not yet active) ────────────
-  // Legacy behaviour: new plant takes 2 quarters to commission and new
-  // machines take 1 quarter. Without per-asset records we approximate
-  // this by keeping current-quarter maccap/placap = the PREVIOUS
-  // capacity, and surfacing the new units separately in newmcap/newpcap
-  // so CAPTAB still records the investment. The active capacity will
-  // pick up the additions on the next quarter's CapacityModule run.
+  // ── 1. Activate previously-ordered capacity, then record new orders ─
+  // Legacy behaviour: machines commission in 1 quarter, plant in 2. With
+  // only aggregate totals (no per-asset records) we approximate via a
+  // 1-quarter lead time for both: previous quarter's `newmcap` / `newpcap`
+  // roll into the active pool this quarter, and CURRENT quarter's
+  // decisions land in newmcap/newpcap (still inactive).
+  //
+  // The previous implementation never rolled new orders into the active
+  // pool, so capacity stayed at zero forever and production = 0 for every
+  // team that started with no seeded capacity. This caused the "0 sales
+  // across every quarter" symptom seen in test runs.
+  const maccapActive = (prevCapacity.maccap || 0) + (prevCapacity.newmcap || 0);
+  const placapActive = (prevCapacity.placap || 0) + (prevCapacity.newpcap || 0);
+
   const newmcap = decision.newMCap || 0;
   const newpcap = decision.newPCap || 0;
-
-  const maccapActive = prevCapacity.maccap;
-  const placapActive = prevCapacity.placap;
 
   // ── 2. Depreciation this quarter ─────────────────────────────────
   // Rate derived from asset life — matches legacy: each quarter burns

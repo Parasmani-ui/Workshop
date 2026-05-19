@@ -11,6 +11,7 @@ import { config } from './config/env';
 import { errorHandler } from './middleware/errorHandler';
 
 // Route imports
+import { authRouter } from './routes/auth.routes';
 import { gamesRouter } from './routes/games.routes';
 import { scenariosRouter } from './routes/scenarios.routes';
 import { engineRouter } from './routes/engine.routes';
@@ -55,6 +56,9 @@ app.get('/api/health', (_req, res) => {
 });
 
 // --------------- Routes ---------------
+// Auth (register, login, me, join-game)
+app.use('/api/auth', authRouter);
+
 // Games (nests /teams, /decisions, /reports, /leaderboard sub-routes)
 app.use('/api/games', gamesRouter);
 

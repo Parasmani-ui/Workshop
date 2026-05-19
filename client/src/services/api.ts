@@ -4,10 +4,32 @@ import type { Decision } from '@/types/decision.types'
 import type { TeamReport, SectorEntry } from '@/types/report.types'
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
+const TOKEN_KEY = 'chanakya_token'
 
 const api = axios.create({
   baseURL: API_URL ? `${API_URL}/api` : '/api',
   headers: { 'Content-Type': 'application/json' },
+})
+
+export function setAuthToken(token: string | null): void {
+  if (token) {
+    localStorage.setItem(TOKEN_KEY, token)
+  } else {
+    localStorage.removeItem(TOKEN_KEY)
+  }
+}
+
+export function getAuthToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY)
+}
+
+api.interceptors.request.use((config) => {
+  const token = getAuthToken()
+  if (token) {
+    config.headers = config.headers ?? {}
+    ;(config.headers as Record<string, string>).Authorization = `Bearer ${token}`
+  }
+  return config
 })
 
 api.interceptors.response.use(
@@ -17,6 +39,61 @@ api.interceptors.response.use(
     return Promise.reject(new Error(message))
   }
 )
+
+// ── Auth ──────────────────────────────────────────────────────
+export interface AuthUser {
+  id: string
+  email: string
+  role: 'facilitator' | 'team'
+  name: string
+}
+
+export const authApi = {
+  register: (body: {
+    email: string
+    password: string
+    name: string
+    role: 'facilitator' | 'team'
+  }) =>
+    api.post<{ success: boolean; data: { user: AuthUser; token: string } }>(
+      '/auth/register',
+      body
+    ),
+
+  login: (body: { email: string; password: string }) =>
+    api.post<{ success: boolean; data: { user: AuthUser; token: string } }>(
+      '/auth/login',
+      body
+    ),
+
+  me: () =>
+    api.get<{ success: boolean; data: { user: AuthUser } }>('/auth/me'),
+
+  joinGame: (body: { gameId: string; teamNo: number; teamName?: string }) =>
+    api.post<{
+      success: boolean
+      data: { team: Team; game: { gameId: string; name: string; status: string; currentQuarter: number } }
+    }>('/auth/join-game', body),
+
+  myGames: () =>
+    api.get<{
+      success: boolean
+      data: {
+        games: Array<{
+          team: { gameId: string; teamNo: number; teamName: string }
+          game: {
+            gameId: string
+            name: string
+            status: 'setup' | 'active' | 'processing' | 'completed'
+            currentQuarter: number
+            maxQuarters: number
+            winCriteria: string
+            noOfTeams: number
+          }
+        }>
+      }
+    }>('/auth/my-games'),
+}
 
 // ── Games ──────────────────────────────────────────────────────
 export const gameApi = {

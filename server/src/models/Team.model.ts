@@ -13,6 +13,7 @@ export interface ITeam {
   coo: string;
   cmo: string;
   isActive: boolean;
+  userId?: mongoose.Types.ObjectId;
 }
 
 export interface ITeamDocument extends ITeam, Document {}
@@ -27,10 +28,12 @@ const TeamSchema = new Schema<ITeamDocument>(
     coo: { type: String },
     cmo: { type: String },
     isActive: { type: Boolean, default: true },
+    userId: { type: Schema.Types.ObjectId, ref: 'User' },
   },
   { timestamps: true }
 );
 
 TeamSchema.index({ gameId: 1, teamNo: 1 }, { unique: true });
+TeamSchema.index({ userId: 1 });
 
 export const Team = mongoose.model<ITeamDocument>('Team', TeamSchema);

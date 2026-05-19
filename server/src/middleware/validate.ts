@@ -13,8 +13,12 @@ export function validateBody(schema: ZodSchema) {
 
     if (!result.success) {
       const zodError = result.error as ZodError;
+      const first = zodError.errors[0];
+      const field = first?.path?.join('.') ?? 'field';
+      const message = first ? `${field}: ${first.message}` : 'Invalid request body';
       res.status(400).json({
         success: false,
+        message,
         errors: zodError.errors,
       });
       return;

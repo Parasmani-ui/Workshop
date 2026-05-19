@@ -10,6 +10,7 @@
     "seed": "ts-node src/scripts/seedAll.ts",
     "seed:all": "ts-node src/scripts/seedAll.ts",
     "seed:mpx": "ts-node src/scripts/seedMPX.ts",
+    "seed:users": "ts-node src/scripts/seedUsers.ts",
     "db:clear": "ts-node src/scripts/clearDB.ts",
     "test:routes": "ts-node src/scripts/testRoutes.ts",
     "test:engine": "ts-node src/scripts/testEngineRun.ts",

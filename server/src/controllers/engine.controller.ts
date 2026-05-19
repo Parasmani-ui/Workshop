@@ -101,6 +101,10 @@ export async function processAndPersist(gameId: string, quarterNo: number): Prom
       sprem: o.bsheet?.sprem || 0,
       psprem: o.bsheet?.psprem || 0,
       totlib: o.bsheet?.totlib || 0,
+      // Accounts payable carried from previous quarter — settled in cash
+      // by CashFlowModule this quarter (otherwise the liability silently
+      // disappears and the balance sheet drifts).
+      acpayble: o.bsheet?.acpayble || 0,
       // Cash
       opencash: o.cashtab?.opencash || 0,
       endcash: o.cashtab?.endcash || 0,
@@ -145,26 +149,59 @@ export async function processAndPersist(gameId: string, quarterNo: number): Prom
       invsale: (d as unknown as { invsale?: number }).invsale ?? 0,
     }));
 
-    // Load active loans (LoanMaster) carried over from prior quarters,
-    // grouped by teamNo. Engine convention: `endsin` is the number of
-    // quarters remaining on the loan, not an absolute quarter number, so
-    // a loan is "active" whenever endsin > 0.
-    const loanDocs = await LoanMaster.find({
-      gameId,
-      endsin: { $gt: 0 },
-    }).lean();
+    // Load active loans from the PREVIOUS quarter's snapshot. Using the
+    // QuarterOutput.loanSnapshot (frozen state at end of prior quarter)
+    // instead of the mutable LoanMaster collection makes re-runs of this
+    // quarter idempotent — LoanMaster reflects whatever the last engine
+    // run produced (i.e. THIS quarter's post-state if it has been run
+    // before), which causes the engine to "double-pay" loans on re-run
+    // and creates a balance-sheet drift equal to the prior shark loan.
     const existingLoans: Record<number, LoanEntry[]> = {};
-    for (const l of loanDocs) {
-      const entry: LoanEntry = {
-        loanNo: l.loanNo ?? 0,
-        lamount: l.lamount ?? 0,
-        intrate: l.intrate ?? 0,
-        duration: l.duration ?? 0,
-        amountdue: l.amountdue ?? 0,
-        emi: l.emi ?? 0,
-        endsin: l.endsin ?? 0,
-      };
-      (existingLoans[l.teamNo] ??= []).push(entry);
+    for (const o of prevOutputs) {
+      const snapshot = (o.loanSnapshot ?? []) as ReadonlyArray<{
+        loanNo?: number; lamount?: number; intrate?: number; duration?: number;
+        amountdue?: number; emi?: number; endsin?: number;
+      }>;
+      const entries: LoanEntry[] = [];
+      for (const l of snapshot) {
+        if ((l.endsin ?? 0) <= 0 || (l.amountdue ?? 0) <= 0) continue;
+        entries.push({
+          loanNo: l.loanNo ?? 0,
+          lamount: l.lamount ?? 0,
+          intrate: l.intrate ?? 0,
+          duration: l.duration ?? 0,
+          amountdue: l.amountdue ?? 0,
+          emi: l.emi ?? 0,
+          endsin: l.endsin ?? 0,
+        });
+      }
+      if (entries.length > 0) existingLoans[o.teamNo] = entries;
+    }
+
+    // Fallback: if a prior QuarterOutput exists but has no snapshot
+    // (data from before this field was introduced), back-fill from
+    // LoanMaster so legacy games keep working. New games will populate
+    // the snapshot from Q1 onwards.
+    const hasAnySnapshot = prevOutputs.some(
+      (o) => (o.loanSnapshot ?? []).length > 0,
+    );
+    if (!hasAnySnapshot && prevOutputs.length > 0) {
+      const loanDocs = await LoanMaster.find({
+        gameId,
+        endsin: { $gt: 0 },
+      }).lean();
+      for (const l of loanDocs) {
+        const entry: LoanEntry = {
+          loanNo: l.loanNo ?? 0,
+          lamount: l.lamount ?? 0,
+          intrate: l.intrate ?? 0,
+          duration: l.duration ?? 0,
+          amountdue: l.amountdue ?? 0,
+          emi: l.emi ?? 0,
+          endsin: l.endsin ?? 0,
+        };
+        (existingLoans[l.teamNo] ??= []).push(entry);
+      }
     }
 
     // Strike-state machine: prior value comes from prevOutputs.strikeState
@@ -225,6 +262,13 @@ export async function processAndPersist(gameId: string, quarterNo: number): Prom
             pdiv: fin.pdiv, deprec: fin.deprec, extitem: fin.extitem,
             cumloss: fin.cumloss, esprice: fin.esprice,
             ttoteq: fin.toteq,
+            // Financial-cost breakdown — surfaced on PANDL so reports
+            // can show the interest split. LoanModule currently exposes
+            // only an aggregate, so non-shark interest lands on tloanint.
+            tloanint: loanOut.totalInterest,
+            bondint: 0,
+            stlint: 0,
+            shkint: loanOut.sharkInterest || 0,
             // Equity tender price — next quarter reads this as issue price
             eqtnd: fin.eqtnd ?? 0,
             // Line items (newly persisted)
@@ -349,6 +393,20 @@ export async function processAndPersist(gameId: string, quarterNo: number): Prom
             strikeb: ev.strikeCostB || 0,
           },
           strikeState: teamOutput.strikeState,
+          // Snapshot active loans at the end of this quarter so the next
+          // quarter (and any re-run of the next quarter) reads a
+          // consistent prior state. Without this, re-running a quarter
+          // would pick up the LoanMaster collection in its current
+          // (already-modified) state and double-count loan repayments.
+          loanSnapshot: teamOutput.loans.updatedLoans.map((l) => ({
+            loanNo: l.loanNo,
+            lamount: l.lamount,
+            intrate: l.intrate,
+            duration: l.duration,
+            amountdue: l.amountdue,
+            emi: l.emi,
+            endsin: l.endsin,
+          })),
           processedAt: new Date(),
         },
         { upsert: true, new: true }

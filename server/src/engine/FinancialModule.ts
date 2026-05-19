@@ -168,7 +168,11 @@ export async function runFinancialModule(
   // the empirical Q1 tender value (2.06 for MPA-iipm) so Q1 round-trips
   // against the golden. The issue price is floored at face value so an
   // underwater issue cannot produce negative share premium.
-  const prevEshares = prevFinancials.eshares || 1;
+  // prevEshares carries the existing share count. Defaulting to 0 (not 1)
+  // is critical: a `|| 1` fallback creates a phantom share at face value
+  // each Q1 that has no matching cash inflow → balance sheet drifts by
+  // exactly eqfv every quarter. Seed real eshares via Q0 BSHEET instead.
+  const prevEshares = prevFinancials.eshares || 0;
   const newShares = decision.equNo || 0;
   const eshares = prevEshares + newShares;
 
@@ -221,7 +225,19 @@ export async function runFinancialModule(
   // Securities premium rolls into retained earnings, not a separate
   // reserve. Dividends reduce retearn in our model (legacy handles this
   // via a separate CASHTAB path but the end state is equivalent).
-  const retearn = prevFinancials.retearn + netinc - eqdiv - pdiv + securitiesPremium;
+  //
+  // Interest income on short-term investments (cashFlow.invint) is added
+  // to cash by CashFlowModule but never enters the P&L (srev / netinc),
+  // so we credit it directly to retained earnings here. Otherwise the
+  // balance sheet leaks by `invint` per quarter on the asset side.
+  const investmentIncome = cashFlow.invint || 0;
+  const retearn =
+    prevFinancials.retearn
+    + netinc
+    - eqdiv
+    - pdiv
+    + securitiesPremium
+    + investmentIncome;
 
   // Legacy TTOTEQ stores equity capital at face value only (eshares × eqfv).
   // Retained earnings and securities premium are tracked separately on the
@@ -237,15 +253,33 @@ export async function runFinancialModule(
   const totpref = prevFinancials.totpref + newPrefValue;
 
   // ── Fixed assets ───────────────────────────────────────────────
-  const capExpPlant = capacity.newpcap * gameaid.pcapcost;
-  const capExpMachine = capacity.newmcap * gameaid.mcapcost;
+  // Use the same unit cost CashFlowModule used for capex cash outflow,
+  // otherwise the asset booked here diverges from cash paid and the BS
+  // drifts by `newCap × (gameaid.cost − forecast.cost)` every quarter
+  // capex happens. forecast.pcost / forecast.mcost override the gameaid
+  // base when non-zero (price changes across quarters).
+  const pCostPerUnit = forecast.pcost || gameaid.pcapcost;
+  const mCostPerUnit = forecast.mcost || gameaid.mcapcost;
+  const capExpPlant = capacity.newpcap * pCostPerUnit;
+  const capExpMachine = capacity.newmcap * mCostPerUnit;
   const totfixast = prevFinancials.totfixast + capExpPlant + capExpMachine - deprec;
 
   // ── Current assets ─────────────────────────────────────────────
-  // CashFlowModule computed endcash BEFORE the shark-loan auto-trigger ran,
-  // so the proceeds must be added back here to keep the balance sheet in
-  // balance (shkpayble appears on the liability side below).
-  const cashhand = cashFlow.endcash + (loans.sharkLoan || 0);
+  // CashFlowModule computed endcash BEFORE shark-loan auto-trigger, and
+  // also BEFORE the FinancialModule-owned cash outflows (tax, equity
+  // dividend, loan EMI principal + interest, shark interest). We add
+  // shark proceeds and subtract those outflows here so the balance sheet
+  // tallies: every line that reduces retearn or a liability must also
+  // reduce cash by the same amount (or be matched by an accrual).
+  const loanEmiCash = loans.totalEMI || 0;       // principal + interest on serviced loans
+  const sharkInterestCash = loans.sharkInterest || 0; // shark interest paid same quarter
+  const cashhand =
+    cashFlow.endcash
+    + (loans.sharkLoan || 0)
+    - loanEmiCash
+    - sharkInterestCash
+    - itax
+    - eqdiv;
 
   // Accounts receivable — prefer the closingAR figure computed inside
   // CashFlowModule (Fix 6) so AR tracks the actual per-product
@@ -262,17 +296,22 @@ export async function runFinancialModule(
   closeinv += production.closingRM[0] * production.wax;
   closeinv += production.closingRM[1] * production.way;
 
-  const totcurast = cashhand + arecble + closeinv;
+  // Short-term investment balance is a current asset and must appear on
+  // the BS or disinvestment proceeds (added to cash) will look unmatched.
+  const stInvestmentBalance = cashFlow.invmnt ?? 0;
+
+  const totcurast = cashhand + arecble + closeinv + stInvestmentBalance;
 
   // ── Current liabilities ────────────────────────────────────────
   const acpayble = cashFlow.edmatp + cashFlow.edlabp;
-  const stlpayble = decision.stl || 0;
-  const shkpayble = loans.sharkLoan || 0;
-  // Loans maturing within 1 quarter count as current
+  // Loans maturing within 1 quarter count as current liabilities. STL and
+  // shark loans are issued into updatedLoans with endsin=1 by LoanModule,
+  // so they are already captured by loansDueSoon — adding them via
+  // separate stlpayble / shkpayble lines would double-count.
   const loansDueSoon = loans.updatedLoans
     .filter(l => l.endsin <= 1)
     .reduce((sum, l) => sum + l.amountdue, 0);
-  const totcurlib = acpayble + stlpayble + shkpayble + loansDueSoon;
+  const totcurlib = acpayble + loansDueSoon;
 
   // ── Long-term liabilities ──────────────────────────────────────
   const totlnglib = loans.updatedLoans
@@ -314,13 +353,44 @@ export async function runFinancialModule(
     totfixast, totcurast, totcurlib, totlnglib, totast, totlib,
     cashhand, arecble, closeinv, cratio, de, atr,
     eqtnd, sprem: securitiesPremium, psprem: 0,
-    // Cash
+    // Cash — must match cashhand exactly so next quarter's opencash and
+    // the balance sheet agree. Reflects shark loan in, and EMI / shark
+    // interest / tax / equity dividend out (all applied in this module).
     opencash: cashFlow.opencash,
-    endcash: cashFlow.endcash + (loans.sharkLoan || 0),
+    endcash: cashhand,
     // Short-term investment balance (Beer) — CashFlowModule computed the
     // end-of-quarter balance net of decision.invsale; carry it forward.
     invmnt: cashFlow.invmnt,
   };
+
+  // ═══════════════════════════════════════════════════════════════════
+  // BALANCE SHEET TALLY CHECK
+  // Accounting identity: totast == totlib + toteq + totpref + retearn.
+  // Any drift here means a cash outflow or asset was not matched by a
+  // corresponding equity/liability change — log a full breakdown so the
+  // leak source is identifiable without re-running with extra prints.
+  // ═══════════════════════════════════════════════════════════════════
+  const liabPlusEquity = totlib + toteq + totpref + retearn;
+  const bsDrift = totast - liabPlusEquity;
+  if (Math.abs(bsDrift) > 1) {
+    const round2 = (n: number): string => n.toFixed(2);
+    console.warn(
+      `[FinancialModule] Team ${teamNo}: BS DRIFT ${round2(bsDrift)}\n` +
+      `  ASSETS  totast=${round2(totast)} = totfixast(${round2(totfixast)}) + ` +
+      `cashhand(${round2(cashhand)}) + arecble(${round2(arecble)}) + ` +
+      `closeinv(${round2(closeinv)}) + invmnt(${round2(stInvestmentBalance)})\n` +
+      `  L+E     L+E=${round2(liabPlusEquity)} = totcurlib(${round2(totcurlib)}) + ` +
+      `totlnglib(${round2(totlnglib)}) + toteq(${round2(toteq)}) + ` +
+      `totpref(${round2(totpref)}) + retearn(${round2(retearn)})\n` +
+      `  CASH    cashFlow.endcash=${round2(cashFlow.endcash)} + sharkLoan(${round2(loans.sharkLoan || 0)}) ` +
+      `- totalEMI(${round2(loanEmiCash)}) - sharkInt(${round2(sharkInterestCash)}) ` +
+      `- itax(${round2(itax)}) - eqdiv(${round2(eqdiv)})\n` +
+      `  PNL     netinc=${round2(netinc)} pbt=${round2(pbt)} gprofit=${round2(gprofit)} ` +
+      `sadexp=${round2(sadexp)} randexp=${round2(randexp)} bdebts=${round2(bdebts)} ` +
+      `sdisc=${round2(sdisc)} totfin=${round2(totfin)} (loanInt=${round2(loans.totalInterest)} ` +
+      `+shkInt=${round2(loans.sharkInterest || 0)} +misc=${round2(miscexp)}) cofgs=${round2(cofgs)}`,
+    );
+  }
 
   // ═══════════════════════════════════════════════════════════════════
   // PANDL DETAIL (line items not carried on FinancialState)

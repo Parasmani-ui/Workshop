@@ -28,6 +28,23 @@ export interface Team {
   isActive: boolean
 }
 
+export interface ScenarioGameAid {
+  // RM consumption recipe per product (units of RM per unit of product)
+  rm11: number; rm12: number; rm13: number; rm14: number
+  rm21: number; rm22: number; rm23: number; rm24: number
+  // Capacity costs per unit
+  pcapcost: number; mcapcost: number
+  // Other fields exist on the server; these are the ones the client uses for
+  // its decision-side validator. Add more as needed.
+}
+
+export interface ScenarioForecast {
+  quarterNo: number
+  // RM purchase limit (fraction): max purchase = prev_purchase × (1 + rm_lim)
+  rm1lim: number
+  rm2lim: number
+}
+
 export interface Scenario {
   _id: string
   name: string
@@ -36,6 +53,10 @@ export interface Scenario {
   productNames: string[]
   rm1Name: string
   rm2Name: string
+  // Optional — populated by the server when the game has a populated scenarioId.
+  // Used by the Decision Entry validator to surface capacity / RM-recipe warnings.
+  gameaid?: ScenarioGameAid
+  forecast?: ScenarioForecast[]
 }
 
 export interface LeaderboardEntry {

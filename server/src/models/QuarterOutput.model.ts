@@ -372,6 +372,30 @@ const OpTableSchema = new Schema<IOpTable>(
 
 // ---------- Root Document ----------
 
+/** Snapshot of one active loan, embedded on QuarterOutput.loanSnapshot */
+export interface ILoanSnapshotEntry {
+  loanNo: number;
+  lamount: number;
+  intrate: number;
+  duration: number;
+  amountdue: number;
+  emi: number;
+  endsin: number;
+}
+
+const LoanSnapshotEntrySchema = new Schema<ILoanSnapshotEntry>(
+  {
+    loanNo: { type: Number, default: 0 },
+    lamount: { type: Number, default: 0 },
+    intrate: { type: Number, default: 0 },
+    duration: { type: Number, default: 0 },
+    amountdue: { type: Number, default: 0 },
+    emi: { type: Number, default: 0 },
+    endsin: { type: Number, default: 0 },
+  },
+  { _id: false }
+);
+
 export interface IQuarterOutput {
   gameId: string;
   teamNo: number;
@@ -384,6 +408,13 @@ export interface IQuarterOutput {
   optable: IOpTable;
   /** EventModule strike-state machine (0..5) — carried into next quarter */
   strikeState: number;
+  /**
+   * Snapshot of active loans at the end of this quarter. Engine reads
+   * this from the PREVIOUS quarter when processing — guarantees re-runs
+   * pick up the same prior-quarter state as the first run, instead of
+   * the mutable LoanMaster collection which reflects the latest run.
+   */
+  loanSnapshot: ILoanSnapshotEntry[];
   processedAt: Date;
 }
 
@@ -401,6 +432,7 @@ const QuarterOutputSchema = new Schema<IQuarterOutputDocument>(
     captab: { type: CapTabSchema },
     optable: { type: OpTableSchema },
     strikeState: { type: Number, default: 0 },
+    loanSnapshot: { type: [LoanSnapshotEntrySchema], default: [] },
     processedAt: { type: Date, default: Date.now },
   },
   { timestamps: true }

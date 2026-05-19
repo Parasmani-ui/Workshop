@@ -63,7 +63,9 @@ export default function LeaderboardTable({
                 </td>
                 <td>#{e.teamNo + 1}</td>
                 <td>{team?.teamName ?? e.teamName}</td>
-                <td className="text-end fw-semibold">{fmt(e.value)}</td>
+                <td className={`text-end fw-semibold ${e.value < 0 ? 'text-danger' : ''}`}>
+                  {fmt(e.value)}
+                </td>
                 <td className="text-end text-muted">—</td>
                 <td className="text-center">{trendCell(e.trend)}</td>
               </tr>

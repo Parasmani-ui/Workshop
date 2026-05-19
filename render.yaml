@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: chanakya-sim-server
+    name: parasmani-sim-server
     env: node
     region: singapore
     plan: free

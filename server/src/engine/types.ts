@@ -315,6 +315,14 @@ export interface FinancialState {
   /** Preference securities premium (0 unless preference issued above face) */
   psprem?: number;
 
+  /**
+   * Accounts payable carried into the next quarter (deferred portion of
+   * material + labour bills). Settled in cash by the following quarter's
+   * CashFlowModule; if missing, prev-quarter payables silently disappear
+   * from the balance sheet, breaking the BS tally.
+   */
+  acpayble?: number;
+
   // ── Cash ──
   opencash: number;       // Opening cash balance
   endcash: number;        // Ending cash balance

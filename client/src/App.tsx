@@ -8,6 +8,7 @@ import GameSetupPage from '@/pages/facilitator/GameSetupPage'
 import QuarterControlPage from '@/pages/facilitator/QuarterControlPage'
 import SectorUpdatePage from '@/pages/facilitator/SectorUpdatePage'
 import TeamDashboard from '@/pages/team/TeamDashboard'
+import TeamGameView from '@/pages/team/TeamGameView'
 import DecisionEntryPage from '@/pages/team/DecisionEntryPage'
 import MyReportsPage from '@/pages/team/MyReportsPage'
 import AppShell from '@/components/layout/AppShell'
@@ -45,6 +46,7 @@ export default function App() {
       {/* Team routes */}
       <Route path="/team" element={<AppShell role="team" />}>
         <Route index element={<TeamDashboard />} />
+        <Route path="game/:gameId" element={<TeamGameView />} />
         <Route path="game/:gameId/decisions" element={<DecisionEntryPage />} />
         <Route path="game/:gameId/reports" element={<MyReportsPage />} />
       </Route>

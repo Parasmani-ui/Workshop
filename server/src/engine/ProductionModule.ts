@@ -126,6 +126,20 @@ export async function runProductionModule(
     ];
     const decidedTotal = decided[0] + decided[1] + decided[2] + decided[3];
 
+    // Always-on diagnostic: if the team has capacity but didn't submit any
+    // production quantity, log it loudly. The "0 sales every quarter"
+    // symptom almost always traces to decision.prodN never being set, but
+    // the engine output looks the same whether the team chose not to
+    // produce or whether the decision was lost in transit.
+    console.log(
+      `[ProductionModule] Team ${t}: prod=[${decided.join(',')}] ` +
+        `raw=[${decision.raw1},${decision.raw2}] ` +
+        `usableCap=${usableCap} (mac=${maccap},pla=${placap})` +
+        (decidedTotal === 0 && usableCap > 0
+          ? ' ⚠ team has capacity but submitted 0 production'
+          : ''),
+    );
+
     const actualProd: [number, number, number, number] = [0, 0, 0, 0];
     if (decidedTotal > usableCap && decidedTotal > 0) {
       const scale = safeDivide(usableCap, decidedTotal);

@@ -3,10 +3,11 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useGameStore } from '@/store/gameStore'
 import { useUIStore } from '@/store/uiStore'
 import { useSocket } from '@/hooks/useSocket'
-import { decisionApi, gameApi, teamApi } from '@/services/api'
+import { decisionApi, gameApi, reportApi, teamApi } from '@/services/api'
 import { formatCurrency } from '@/utils/formatters'
 import type { Decision } from '@/types/decision.types'
 import type { Scenario } from '@/types/game.types'
+import type { TeamReport } from '@/types/report.types'
 
 type TabKey = 'production' | 'marketing' | 'finance' | 'rnd' | 'submit'
 
@@ -67,6 +68,14 @@ export default function DecisionEntryPage() {
   >(null)
   const [lastSaved, setLastSaved] = useState<string | null>(null)
   const [alreadySubmitted, setAlreadySubmitted] = useState(false)
+  /**
+   * The previous quarter's published report for this team. Used by the
+   * decision validator to compute usable capacity (prev.maccap + prev.newmcap),
+   * opening RM (prev.crawin1/2), and the RM purchase ceiling
+   * (prev.rawx × (1 + rm1lim)). Null while loading or when no prior quarter
+   * exists (Q1 with no Q0 seed).
+   */
+  const [prevReport, setPrevReport] = useState<TeamReport | null>(null)
   const hydratedRef = useRef(false)
 
   // Always re-fetch game on mount so stale state can't make a team submit
@@ -208,6 +217,160 @@ export default function DecisionEntryPage() {
     return { revenue, rmCost, saTotal, financeTotal, totalProd, totalRM }
   }, [decision])
 
+  // Fetch the previous quarter's published report so the validator below
+  // knows this team's starting capacity, opening RM, and purchase ceiling.
+  // Q1 reads from Q0 (seeded on game activation); Q2+ reads from Q[N-1].
+  useEffect(() => {
+    if (!gameId || quarterNo < 1) return
+    let cancelled = false
+    reportApi
+      .getTeamReport(gameId, teamNo, quarterNo - 1)
+      .then((res) => {
+        if (!cancelled) setPrevReport(res.data.data.report)
+      })
+      .catch(() => {
+        if (!cancelled) setPrevReport(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [gameId, teamNo, quarterNo])
+
+  /**
+   * Pre-submission validator — surfaces capacity / RM-recipe / RM-purchase
+   * constraints to the team while they're still editing decisions. Mirrors
+   * the engine's ProductionModule logic so what the team sees here is what
+   * the engine will actually do on process.
+   */
+  const validations = useMemo(() => {
+    const warnings: { level: 'warn' | 'info'; text: string }[] = []
+    if (!prevReport || !scenario?.gameaid) return warnings
+
+    const cap = prevReport.captab
+    const sale = prevReport.saledata
+    const gameaid = scenario.gameaid
+    const forecast = scenario.forecast?.find((f) => f.quarterNo === quarterNo)
+
+    const prods = [decision.prod1, decision.prod2, decision.prod3, decision.prod4]
+    const totalProd = prods.reduce((a, b) => a + b, 0)
+
+    // 1. Capacity check
+    // Active capacity this quarter = prev active + prev new orders (1Q lead).
+    if (cap) {
+      const usableCap = Math.min(
+        (cap.maccap || 0) + (cap.newmcap || 0),
+        (cap.placap || 0) + (cap.newpcap || 0),
+      )
+      if (totalProd > usableCap && usableCap > 0) {
+        const scaledPct = ((usableCap / totalProd) * 100).toFixed(0)
+        warnings.push({
+          level: 'warn',
+          text:
+            `Production decisions total ${totalProd.toLocaleString()} units but ` +
+            `your usable capacity is only ${usableCap.toLocaleString()} ` +
+            `(min of plant + machine). The engine will scale every product ` +
+            `down to ~${scaledPct}% of what you ordered.`,
+        })
+      } else if (totalProd > 0 && usableCap === 0) {
+        warnings.push({
+          level: 'warn',
+          text:
+            'You have zero active capacity this quarter. New plant/machine ' +
+            'ordered now activates next quarter — production will be 0.',
+        })
+      }
+    }
+
+    // 2. RM purchase ceiling check
+    const prevRaw1 = sale?.rawx ?? 0
+    const prevRaw2 = sale?.rawy ?? 0
+    const rm1lim = forecast?.rm1lim ?? 0
+    const rm2lim = forecast?.rm2lim ?? 0
+    const maxRaw1 = prevRaw1 > 0 ? prevRaw1 * (1 + rm1lim) : Infinity
+    const maxRaw2 = prevRaw2 > 0 ? prevRaw2 * (1 + rm2lim) : Infinity
+    if (decision.raw1 > maxRaw1 && Number.isFinite(maxRaw1)) {
+      warnings.push({
+        level: 'warn',
+        text:
+          `${rm1Name} order ${decision.raw1.toLocaleString()} exceeds the ` +
+          `purchase ceiling (${Math.floor(maxRaw1).toLocaleString()} = ` +
+          `prev quarter's ${prevRaw1.toLocaleString()} × (1 + ${(rm1lim * 100).toFixed(0)}%)). ` +
+          `The engine will cap it at ${Math.floor(maxRaw1).toLocaleString()}.`,
+      })
+    }
+    if (decision.raw2 > maxRaw2 && Number.isFinite(maxRaw2)) {
+      warnings.push({
+        level: 'warn',
+        text:
+          `${rm2Name} order ${decision.raw2.toLocaleString()} exceeds the ` +
+          `purchase ceiling (${Math.floor(maxRaw2).toLocaleString()} = ` +
+          `prev quarter's ${prevRaw2.toLocaleString()} × (1 + ${(rm2lim * 100).toFixed(0)}%)). ` +
+          `The engine will cap it at ${Math.floor(maxRaw2).toLocaleString()}.`,
+      })
+    }
+
+    // 3. RM recipe vs available RM — checked AFTER capacity scaling, since
+    //    that's what the engine actually consumes.
+    const effRaw1 = Math.min(decision.raw1, maxRaw1)
+    const effRaw2 = Math.min(decision.raw2, maxRaw2)
+    const openRM1 = sale?.crawin1 ?? 0
+    const openRM2 = sale?.crawin2 ?? 0
+    const availRM1 = openRM1 + effRaw1
+    const availRM2 = openRM2 + effRaw2
+
+    const rm1Recipe = [gameaid.rm11, gameaid.rm12, gameaid.rm13, gameaid.rm14]
+    const rm2Recipe = [gameaid.rm21, gameaid.rm22, gameaid.rm23, gameaid.rm24]
+    const usableCap = cap
+      ? Math.min(
+          (cap.maccap || 0) + (cap.newmcap || 0),
+          (cap.placap || 0) + (cap.newpcap || 0),
+        )
+      : Infinity
+    const scale =
+      totalProd > usableCap && totalProd > 0 ? usableCap / totalProd : 1
+    const rm1Needed = prods.reduce(
+      (sum, p, i) => sum + Math.floor(p * scale) * (rm1Recipe[i] ?? 0),
+      0,
+    )
+    const rm2Needed = prods.reduce(
+      (sum, p, i) => sum + Math.floor(p * scale) * (rm2Recipe[i] ?? 0),
+      0,
+    )
+
+    if (rm1Needed > availRM1 && totalProd > 0) {
+      warnings.push({
+        level: 'warn',
+        text:
+          `Recipe needs ${rm1Needed.toLocaleString()} ${rm1Name} but you only ` +
+          `have ${availRM1.toLocaleString()} available ` +
+          `(opening ${openRM1.toLocaleString()} + buying ${Math.floor(effRaw1).toLocaleString()}). ` +
+          `Products are filled in P1→P2→P3→P4 order; the later ones will be starved.`,
+      })
+    }
+    if (rm2Needed > availRM2 && totalProd > 0) {
+      warnings.push({
+        level: 'warn',
+        text:
+          `Recipe needs ${rm2Needed.toLocaleString()} ${rm2Name} but you only ` +
+          `have ${availRM2.toLocaleString()} available ` +
+          `(opening ${openRM2.toLocaleString()} + buying ${Math.floor(effRaw2).toLocaleString()}). ` +
+          `Products are filled in P1→P2→P3→P4 order; the later ones will be starved.`,
+      })
+    }
+
+    // 4. "Did you forget production?" nudge
+    if (totalProd === 0 && (decision.raw1 > 0 || decision.raw2 > 0)) {
+      warnings.push({
+        level: 'info',
+        text:
+          'You ordered raw materials but no production quantities — RM will ' +
+          'sit in inventory at quarter end (and warehouse costs apply).',
+      })
+    }
+
+    return warnings
+  }, [prevReport, scenario, decision, quarterNo, rm1Name, rm2Name])
+
   function updateField<K extends keyof Decision>(key: K, value: Decision[K]) {
     setDecision((prev) => ({ ...prev, [key]: value }))
   }
@@ -316,6 +479,7 @@ export default function DecisionEntryPage() {
               isLocked={isLocked}
               updateField={updateField}
               rmCostEstimate={totals.rmCost}
+              validations={validations}
             />
           )}
 
@@ -434,6 +598,7 @@ interface ProductionTabProps {
   isLocked: boolean
   updateField: <K extends keyof Decision>(key: K, value: Decision[K]) => void
   rmCostEstimate: number
+  validations: { level: 'warn' | 'info'; text: string }[]
 }
 
 function ProductionTab({
@@ -444,12 +609,27 @@ function ProductionTab({
   isLocked,
   updateField,
   rmCostEstimate,
+  validations,
 }: ProductionTabProps) {
   const prodKeys = ['prod1', 'prod2', 'prod3', 'prod4'] as const
   const priceKeys = ['price1', 'price2', 'price3', 'price4'] as const
 
   return (
     <>
+      {validations.length > 0 && (
+        <div className="mb-3">
+          {validations.map((v, i) => (
+            <div
+              key={i}
+              className={`alert alert-${v.level === 'warn' ? 'warning' : 'info'} py-2 small mb-2`}
+              role="alert"
+            >
+              {v.level === 'warn' ? '⚠ ' : 'ℹ️ '}{v.text}
+            </div>
+          ))}
+        </div>
+      )}
+
       <h5 className="mb-3">Production Quantities</h5>
       <div className="table-responsive mb-4">
         <table className="table table-sm align-middle">

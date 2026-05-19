@@ -7,7 +7,9 @@ declare namespace Express {
   interface Request {
     user?: {
       id: string;
+      email: string;
       role: 'facilitator' | 'team';
+      name: string;
     };
     gameId?: string;
   }

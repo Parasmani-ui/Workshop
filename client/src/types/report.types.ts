@@ -10,10 +10,14 @@ export interface PandL {
 
 export interface BSheet {
   eshares: number; pshares: number; retearn: number; toteq: number
+  totpref?: number
+  sprem?: number
+  psprem?: number
   esprice: number; closeinv: number; arecble: number; cashhand: number
   totfixast: number; totcurast: number; totcurlib: number
-  totlnglib: number; totast: number
+  totlnglib: number; totast: number; totlib?: number
   twyloans: number; thyloans: number; bonds: number
+  acpayble?: number; shkpayble?: number; invmnt?: number
   cratio: number; de: number; atr: number; pem: number
 }
 
@@ -23,6 +27,14 @@ export interface SaleData {
   closeinv1: number; closeinv2: number; closeinv3: number; closeinv4: number
   ordbook1: number; ordbook2: number; ordbook3: number; ordbook4: number
   rawx: number; rawy: number; wax: number; way: number
+  /** Closing RM inventory carried into the next quarter (CRAWIN1/CRAWIN2). */
+  crawin1?: number; crawin2?: number
+}
+
+export interface CapTab {
+  maccap: number; placap: number
+  newmcap: number; newpcap: number
+  deprecm: number; deprecp: number
 }
 
 export interface TeamReport {
@@ -32,6 +44,7 @@ export interface TeamReport {
   pandl: PandL
   bsheet: BSheet
   saledata: SaleData
+  captab?: CapTab
   processedAt: string
 }
 

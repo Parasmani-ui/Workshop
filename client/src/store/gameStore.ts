@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { Game, Team, LeaderboardEntry } from '@/types/game.types'
+import type { AuthUser } from '@/services/api'
 
 interface GameState {
   currentGame: Game | null
@@ -10,6 +11,7 @@ interface GameState {
   myRole: 'facilitator' | 'team' | null
   myTeamNo: number | null
   myGameId: string | null
+  authUser: AuthUser | null
   processingReady: boolean
 
   setGame: (game: Game) => void
@@ -17,7 +19,8 @@ interface GameState {
   setLeaderboard: (entries: LeaderboardEntry[]) => void
   setLoading: (loading: boolean) => void
   setError: (error: string | null) => void
-  setIdentity: (role: 'facilitator' | 'team', teamNo?: number, gameId?: string) => void
+  setIdentity: (role: 'facilitator' | 'team' | null, teamNo?: number, gameId?: string) => void
+  setAuthUser: (user: AuthUser | null) => void
   updateGameStatus: (status: Game['status'], currentQuarter?: number) => void
   setProcessingReady: (ready: boolean) => void
   reset: () => void
@@ -32,6 +35,7 @@ export const useGameStore = create<GameState>((set) => ({
   myRole: null,
   myTeamNo: null,
   myGameId: null,
+  authUser: null,
   processingReady: false,
 
   setGame: (game) => set({ currentGame: game }),
@@ -45,6 +49,7 @@ export const useGameStore = create<GameState>((set) => ({
       myTeamNo: myTeamNo ?? null,
       myGameId: myGameId ?? null,
     }),
+  setAuthUser: (authUser) => set({ authUser }),
   updateGameStatus: (status, currentQuarter) =>
     set((state) => ({
       currentGame: state.currentGame
@@ -62,6 +67,7 @@ export const useGameStore = create<GameState>((set) => ({
       teams: [],
       leaderboard: [],
       error: null,
+      authUser: null,
       processingReady: false,
     }),
 }))
